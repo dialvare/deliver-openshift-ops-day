@@ -157,14 +157,19 @@
             route:
               enabled: false
 
+# job_256674 (cluster-mr7n5) failed here after only 60s (12x5s): the operator
+# hadn't deleted the "central"/"central-mtls" Route objects yet (fatal payload
+# showed both still present, created at the same timestamp the disable patch
+# was applied) - it just needed more time to reconcile the route.enabled=false
+# change. Widen the budget to tolerate slower operator reconciliation.
 - name: Wait for default routes to be fully removed
   kubernetes.core.k8s_info:
     api_version: route.openshift.io/v1
     kind: Route
     namespace: stackrox
   register: r_stackrox_routes
-  retries: 12
-  delay: 5
+  retries: 40
+  delay: 10
   until: r_stackrox_routes.resources | length == 0
 
 - name: Enable native reencrypt route with combined CA trust
