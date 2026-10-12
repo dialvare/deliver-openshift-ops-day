@@ -25,6 +25,7 @@ oc adm policy remove-cluster-role-from-group lightspeed-operator-query-access oc
 oc adm policy remove-cluster-role-from-user lightspeed-operator-query-access developer1 2>/dev/null || true
 oc delete secret rhbk-client-secret -n openshift-config --ignore-not-found
 oc delete user developer1 admin1 viewer1 --ignore-not-found
+oc delete identity keycloak:developer1 keycloak:admin1 keycloak:viewer1 --ignore-not-found
 oc delete group ocp-admins ocp-developers ocp-viewers --ignore-not-found
 
 # Wait for the OAuth rollout to finish *before* tearing down Keycloak, so the
