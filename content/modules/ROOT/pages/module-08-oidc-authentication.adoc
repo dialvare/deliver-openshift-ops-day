@@ -191,6 +191,12 @@ Verify the setup in the Keycloak UI - click **Users** and **Groups** to confirm 
 
 === Step 7: Configure OpenShift OAuth
 
+Applying this OAuth config change causes `oauth-openshift` to restart - and the authentication operator applies the change in several stages, so it's normal for `oauth-openshift` to restart *more than once in a row* over the next several minutes. If the **OCP Console** tab is logged in and watching the API while that happens, its connections start failing and retrying continuously, and on embedded/iframed Consoles (like the one in this Showroom) that retry storm can pin the browser tab's CPU and make it completely unresponsive.
+
+To avoid that, log out *before* making the change, so the Console tab is just sitting on the static login page - with no open API connections - while OAuth is cycling:
+
+1. In the **OCP Console** tab, click your username (top-right) and select **Log out**
+
 The Keycloak setup script already created the `rhbk-client-secret` in `openshift-config` with the correct client secret. Now configure OAuth to use it:
 
 [source,bash,subs="+attributes",role="execute"]
@@ -206,39 +212,30 @@ fi
 
 The key line is `claims.groups: [groups]` - this tells OpenShift to read the `groups` claim from the ID token and create OpenShift groups from it. This is why the script added the groups mapper to the OIDC client.
 
-Wait for the OAuth rollout:
+The script above waits for the OAuth rollout to complete *and* to stay stable for 30 seconds before printing `OAuth is live with rhbk provider`. Don't reload the **OCP Console** tab until you see that message - keep reading below for why.
 
-[source,bash,role="execute"]
-----
-oc rollout status deployment/oauth-openshift -n openshift-authentication --timeout=120s
-echo "Waiting for all OAuth pods to be ready with new config..."
-ELAPSED=0
-until [ "$(oc get pods -n openshift-authentication -l app=oauth-openshift --no-headers 2>/dev/null | grep -c Running)" -ge 3 ] && \
-      [ "$(oc get pods -n openshift-authentication -l app=oauth-openshift --no-headers 2>/dev/null | grep -vc Running)" -eq 0 ]; do
-  sleep 5; ELAPSED=$((ELAPSED+5))
-  [ $ELAPSED -ge 180 ] && echo "ERROR: Timed out - check 'oc get pods -n openshift-authentication'" && break
-done
-echo "OAuth is live with rhbk provider - you can log in now"
-----
+[IMPORTANT]
+====
+**Do not reload the OCP Console tab (or log back in) before the script prints "OAuth is live... has been stable..."**
 
-NOTE: This takes a minute or two while the OAuth pods restart with the new configuration. Please wait for it to complete - only press **Ctrl+C** if it has been running for more than 5 minutes.
+Even logged out, reloading mid-rollout can hit a backend that's mid-restart and land you on an error page, and logging in again re-opens the authenticated watches that caused the freeze in the first place. The wait script protects you from this: it only declares victory once `oauth-openshift` has had no new restarts for a full 30 seconds. If you ever see repeated "oauth-openshift restarted again" lines, that's expected - just keep waiting.
+====
 
 === Step 8: Test OIDC Login and Automatic Group Sync
 
-1. In the **OCP Console** tab, click your username (top-right) and select **Log out**
-2. Click the **reload button** (circular arrow) next to the OCP Console tab name. You'll see both identity providers:
+1. Click the **reload button** (circular arrow) next to the OCP Console tab name. You'll see both identity providers:
 +
 image::oidc-login-selector.png[OpenShift login page showing htpasswd and rhbk, link=self, window=blank]
 +
-3. Click **rhbk**
-4. Log in as `developer1` / `OpenShift123!`
+2. Click **rhbk**
+3. Log in as `developer1` / `OpenShift123!`
 
 [NOTE]
 ====
 You may see an **Authentication error** page:
 
 image::oidc-auth-error.png[Authentication error after OIDC login, link=self, window=blank]
-Click the **reload button** (circular arrow) next to the OCP Console tab to reload the page.
+Click the **reload button** (circular arrow) next to the OCP Console tab to reload the page. If you see this and the OAuth script finished successfully, a single reload should resolve it - avoid repeatedly clicking reload, as rapid repeated reloads are part of what can make the Console tab unresponsive.
 ====
 
 Now check what happened - when `developer1` logged in, their Keycloak group membership was included in the ID token. OpenShift reads the token and creates the groups automatically, no manual `oc adm groups sync` required. Back in the terminal:
