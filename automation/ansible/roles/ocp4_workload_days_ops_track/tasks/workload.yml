@@ -1751,6 +1751,43 @@
         msg: "Faulty pod deployed to lightspeed-demo namespace for Lightspeed troubleshooting exercise"
       when: not silent | default(false) | bool
 
+    - name: Deploy OLS troubleshooting case (PodDisruptionBudgetLimit alert)
+      when: workshop_deploy_ols_troubleshooting_case | default(true) | bool
+      block:
+        - name: Create critical namespace for troubleshooting case
+          kubernetes.core.k8s:
+            state: present
+            wait: true
+            definition:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: critical
+                labels:
+                  app.kubernetes.io/name: critical-service
+                  app.kubernetes.io/part-of: critical-system
+
+        - name: Wait for default ServiceAccount in critical namespace
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: ServiceAccount
+            name: default
+            namespace: critical
+          register: r_sa_critical
+          until: r_sa_critical.resources | length > 0
+          retries: 10
+          delay: 3
+
+        - name: Deploy failing Deployment and PDB to trigger PodDisruptionBudgetLimit alert
+          kubernetes.core.k8s:
+            state: present
+            definition: "{{ lookup('template', 'ols_troubleshooting_case.yaml.j2') }}"
+
+        - name: OLS troubleshooting case deployed
+          debug:
+            msg: "Troubleshooting case deployed to 'critical' namespace — PodDisruptionBudgetLimit alert will fire automatically"
+          when: not silent | default(false) | bool
+
 # ==============================================================================
 # Pre-create Observability UIPlugin CRs
 # COO watches UIPlugin CRs and creates ConsolePlugins, each of which triggers

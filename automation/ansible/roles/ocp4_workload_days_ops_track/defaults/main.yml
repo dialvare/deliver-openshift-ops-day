@@ -81,3 +81,11 @@ workshop_lvms_optional_paths:
 
 # Force wipe - required when using optionalPaths to handle pre-existing signatures
 workshop_lvms_force_wipe: true
+
+# -------------------------------------------------------------------
+# OLS Troubleshooting Case (optional - requires module_enable_ols: true)
+# Deploys a Deployment with a failing init container + PodDisruptionBudget
+# that intentionally triggers a PodDisruptionBudgetLimit critical alert.
+# Used by the Advanced Troubleshooting and Agentic OLS sections of the module.
+# -------------------------------------------------------------------
+workshop_deploy_ols_troubleshooting_case: true
