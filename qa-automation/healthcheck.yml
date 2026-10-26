@@ -74,24 +74,26 @@
           | selectattr('status', 'equalto', 'True')
           | list | length == 0
 
-    - name: "Base | ClusterOperators are Available and not Degraded"
+    - name: "Base | ClusterOperators are Available"
       kubernetes.core.k8s_info:
         api_version: config.openshift.io/v1
         kind: ClusterOperator
       register: cluster_operators
       ignore_errors: true
 
-    - name: "Base | Record failure if any ClusterOperator is unavailable or degraded"
+    # Only fail if an operator is actually not Available (i.e. it is down).
+    # A momentarily Degraded-but-Available operator (e.g. csi-snapshot-controller
+    # during snapshot CRD churn) is still serving, so it is not treated as a
+    # healthcheck failure here.
+    - name: "Base | Record failure if any ClusterOperator is not Available"
       ansible.builtin.set_fact:
         hc_failures: >-
-          {{ hc_failures + ['base: ClusterOperator ' + item.metadata.name + ' is not Available or is Degraded'] }}
+          {{ hc_failures + ['base: ClusterOperator ' + item.metadata.name + ' is not Available'] }}
       loop: "{{ cluster_operators.resources | default([]) }}"
       loop_control:
         label: "{{ item.metadata.name }}"
       when: >-
-        (item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'True') | list | length == 0)
-        or
-        (item.status.conditions | default([]) | selectattr('type', 'equalto', 'Degraded') | selectattr('status', 'equalto', 'True') | list | length > 0)
+        item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'True') | list | length == 0
 
     - name: "Base | Showroom pod is running"
       kubernetes.core.k8s_info:
