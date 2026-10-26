@@ -1,0 +1,48 @@
+---
+# Konflux-style authentication preamble, shared by healthcheck.yml and e2e.yml.
+#
+# Two modes, same as konflux-tssc-lab:
+#
+#   CLI mode (explicit login):
+#     ansible-playbook qa-automation/e2e.yml \
+#       -e ocp_api_url=https://api.cluster-xxx:6443 \
+#       -e ocp_admin_password=<password>
+#     -> runs `oc login` and writes ~/.kube/config, which every subsequent
+#        `oc` and kubernetes.core.k8s* call then uses.
+#
+#   Ambient / in-cluster SA mode (no password passed):
+#     ansible-playbook qa-automation/e2e.yml
+#     -> uses the already-active kubeconfig / in-cluster ServiceAccount, and
+#        confirms it actually works via `oc whoami` (fails loudly if not).
+
+- name: "Auth | Determine mode"
+  ansible.builtin.set_fact:
+    _api_url: "{{ ocp_api_url | default(openshift_api_url | default('')) }}"
+    _use_sa_token: "{{ ocp_admin_password is not defined }}"
+
+- name: "Auth | Validate inputs for CLI login mode"
+  ansible.builtin.assert:
+    that:
+      - _api_url | length > 0
+    fail_msg: >-
+      CLI login mode needs -e ocp_api_url=<url> (or openshift_api_url).
+      Omit ocp_admin_password to use the active kubeconfig / in-cluster SA instead.
+  when: not (_use_sa_token | bool)
+
+- name: "Auth | Login to OpenShift (CLI mode)"
+  ansible.builtin.command:
+    cmd: >-
+      oc login {{ _api_url }}
+      --username admin
+      --password {{ ocp_admin_password }}
+      --insecure-skip-tls-verify
+  changed_when: false
+  no_log: true
+  when: not (_use_sa_token | bool)
+
+- name: "Auth | Confirm an active kubeconfig (ambient / in-cluster SA mode)"
+  ansible.builtin.command: oc whoami
+  register: _auth_whoami
+  changed_when: false
+  failed_when: _auth_whoami.rc != 0
+  when: _use_sa_token | bool
