@@ -67,6 +67,11 @@
     module_enable_performance: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_PERFORMANCE') | default('true', true) | bool }}"
   tasks:
 
+    # -- Authentication (login) ----------------------------------------
+
+    - name: "Auth | Establish cluster authentication"
+      ansible.builtin.include_tasks: tasks/_auth.yml
+
     # -- Module 1: Overview (base content, always runs) ----------------
 
     - name: "Overview | Run Module 1 end-to-end sequence"

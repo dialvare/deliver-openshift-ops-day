@@ -59,6 +59,11 @@
     module_enable_performance: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_PERFORMANCE') | default('true', true) | bool }}"
   tasks:
 
+    # -- Authentication (login) ----------------------------------------
+
+    - name: "Auth | Establish cluster authentication"
+      ansible.builtin.include_tasks: tasks/_auth.yml
+
     # -- Base checks (always run) --------------------------------------
 
     - name: "Base | Monorepo is cloned at expected path"
