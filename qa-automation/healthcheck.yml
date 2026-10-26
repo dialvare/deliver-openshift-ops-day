@@ -81,19 +81,20 @@
       register: cluster_operators
       ignore_errors: true
 
-    # Only fail if an operator is actually not Available (i.e. it is down).
-    # A momentarily Degraded-but-Available operator (e.g. csi-snapshot-controller
-    # during snapshot CRD churn) is still serving, so it is not treated as a
-    # healthcheck failure here.
-    - name: "Base | Record failure if any ClusterOperator is not Available"
+    # Only fail if an operator is explicitly Available=False (i.e. genuinely
+    # down). Operators that are Available=Unknown with reason "Unmanaged" (e.g.
+    # csi-snapshot-controller on this CNV cluster, which is intentionally
+    # unmanaged) are not down and must not fail the healthcheck. A momentarily
+    # Degraded-but-Available operator is also still serving and is not flagged.
+    - name: "Base | Record failure if any ClusterOperator is Available=False"
       ansible.builtin.set_fact:
         hc_failures: >-
-          {{ hc_failures + ['base: ClusterOperator ' + item.metadata.name + ' is not Available'] }}
+          {{ hc_failures + ['base: ClusterOperator ' + item.metadata.name + ' is Available=False'] }}
       loop: "{{ cluster_operators.resources | default([]) }}"
       loop_control:
         label: "{{ item.metadata.name }}"
       when: >-
-        item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'True') | list | length == 0
+        item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'False') | list | length > 0
 
     - name: "Base | Showroom pod is running"
       kubernetes.core.k8s_info:
