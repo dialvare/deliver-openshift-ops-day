@@ -30,6 +30,9 @@ metadata:
   - url: https://redhat.atlassian.net/browse/RHDPCD-1196
     title: Jira Epic
     icon: dashboard
+  - url: https://redhat.atlassian.net/browse/RHDPCD-1463
+    title: Jira Epic
+    icon: dashboard
 spec:
   type: content
   lifecycle: experimental

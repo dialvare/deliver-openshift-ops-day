@@ -16,8 +16,8 @@ project:
   automation_type: "ansible"
   description: "Modular hands-on lab covering OpenShift cluster operations across 17 selectable topics including networking, identity, observability, security, virtualization, multi-cluster management, and AI-assisted operations."
   # content_reviewer_email and infra_reviewer_email are assigned by the RHDP team — not set by the author
-  jira_ticket: "RHDPCD-1196"
-  workflow_id: "5498fbed-df06-45ee-8e4c-21142a5d5540"
+  jira_ticket: "RHDPCD-1463"
+  workflow_id: "3bf1ec2b-aaee-4ba7-9624-1250085cb2d9"
 
 spec:
   title: "OpenShift Ops Day Roadshow"
