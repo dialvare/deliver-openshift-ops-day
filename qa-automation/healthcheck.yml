@@ -1,62 +1,31 @@
 ---
-# HEALTHCHECK — Quick environment readiness check
-# Runs post-provisioning to verify the lab environment is functional.
-# Should complete in under 60 seconds.
+# HEALTHCHECK — Kubernetes resource checks
+# A quick, module-agnostic check that core Kubernetes resources are present and
+# available: nodes Ready, ClusterOperators Available/not Degraded, the Showroom
+# pod Running, and operator Subscriptions installed. It does NOT check
+# individual modules (that's what e2e.yml does) -- it looks at the cluster's
+# core resources as a whole. Read-only, completes in a few seconds.
 #
-# This lab has a module selector (module_enable_* catalog parameters,
-# see rh1-2027/lb1543-ocp-ops-day-cnv/common.yaml) so not every claim
-# deploys the same workloads. Module-specific checks live in tasks/ and
-# are only included when their module was actually enabled for this claim
-# (read from the MODULE_ENABLE_* env vars common.yaml sets on the
-# Showroom pod). Base checks below always run regardless of module
-# selection.
+# Authentication (login) is established via tasks/_auth.yml:
+#   CLI mode:     ansible-playbook qa-automation/healthcheck.yml \
+#                   -e ocp_api_url=https://api.cluster-xxx:6443 \
+#                   -e ocp_admin_password=<password>
+#   Ambient mode: ansible-playbook qa-automation/healthcheck.yml
+#                 (uses the active kubeconfig / in-cluster SA)
 #
 # Every check is collected instead of failing fast, so one run reports
-# everything that's broken instead of stopping at the first problem --
-# useful when several independent modules could each be broken on their
-# own.
-#
-# Exit 0 = healthy, non-zero = unhealthy.
+# everything that's broken at once. Exit 0 = healthy, non-zero = unhealthy.
 
 - name: Environment Health Check
   hosts: localhost
   connection: local
   gather_facts: false
-  # Default kubeconfig for every kubernetes.core.k8s*/helm module in this
-  # play to the runtime-automation identity (populated by zerotouch-automation
-  # from the runtime-automation-kubeconfig Secret -- see the
-  # ocp4_workload_showroom_runtime_automation_* variables in
-  # agnosticd/showroom's ocp4_workload_showroom role). Without this, tasks
-  # fall back to the pod's own in-cluster identity, which is `edit`-scoped to
-  # its own namespace only and cannot read resources like the
-  # openshift-gitops Application below.
   module_defaults:
     group/kubernetes.core.k8s:
       kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
   vars:
     monorepo_path: /showroom/repo
     hc_failures: []
-    # The env lookup returns '' (not undefined) when a var isn't set, so
-    # default() needs boolean=true to treat '' as missing too -- otherwise
-    # it never overrides the empty string and every module gate defaults
-    # to disabled instead of enabled.
-    module_enable_virt: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_VIRT') | default('true', true) | bool }}"
-    module_enable_gitops: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_GITOPS') | default('true', true) | bool }}"
-    module_enable_devhub: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_DEVHUB') | default('true', true) | bool }}"
-    module_enable_security: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_SECURITY') | default('true', true) | bool }}"
-    module_enable_ols: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_OLS') | default('true', true) | bool }}"
-    module_enable_acm: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_ACM') | default('true', true) | bool }}"
-    module_enable_ztwim: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_ZTWIM') | default('true', true) | bool }}"
-    module_enable_vault: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_VAULT') | default('true', true) | bool }}"
-    module_enable_install: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_INSTALL') | default('true', true) | bool }}"
-    module_enable_appmgmt: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_APPMGMT') | default('true', true) | bool }}"
-    module_enable_ingress: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_INGRESS') | default('true', true) | bool }}"
-    module_enable_netsec: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_NETSEC') | default('true', true) | bool }}"
-    module_enable_debugging: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_DEBUGGING') | default('true', true) | bool }}"
-    module_enable_ldap: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_LDAP') | default('true', true) | bool }}"
-    module_enable_oidc: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_OIDC') | default('true', true) | bool }}"
-    module_enable_observability: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_OBSERVABILITY') | default('true', true) | bool }}"
-    module_enable_performance: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_PERFORMANCE') | default('true', true) | bool }}"
   tasks:
 
     # -- Authentication (login) ----------------------------------------
@@ -64,7 +33,7 @@
     - name: "Auth | Establish cluster authentication"
       ansible.builtin.include_tasks: tasks/_auth.yml
 
-    # -- Base checks (always run) --------------------------------------
+    # -- Combined availability checks (not per module) -----------------
 
     - name: "Base | Monorepo is cloned at expected path"
       ansible.builtin.stat:
@@ -79,32 +48,50 @@
         repo_stat is failed or
         not repo_stat.stat.exists or not repo_stat.stat.isdir
 
-    - name: "Base | Expected top-level directories are present"
-      ansible.builtin.stat:
-        path: "{{ monorepo_path }}/{{ item }}"
-      register: dir_stat
-      ignore_errors: true
-      loop:
-        - content
-        # - automation/gitops/bootstrap-infra
-        - automation/ansible
-
-    - name: "Base | Record failure for any missing top-level directory"
-      ansible.builtin.set_fact:
-        hc_failures: "{{ hc_failures + ['base: expected directory missing: ' + item.item] }}"
-      loop: "{{ dir_stat.results }}"
-      when: item is failed or not item.stat.exists or not item.stat.isdir
-
-    - name: "Base | oc whoami"
-      ansible.builtin.command: oc whoami
-      register: oc_whoami
-      changed_when: false
+    - name: "Base | Nodes are Ready"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
       ignore_errors: true
 
-    - name: "Base | Record failure if not logged in to the cluster"
+    - name: "Base | Record failure if the node list could not be read"
       ansible.builtin.set_fact:
-        hc_failures: "{{ hc_failures + ['base: oc whoami failed, not logged in to the cluster'] }}"
-      when: oc_whoami is failed or oc_whoami.rc != 0
+        hc_failures: "{{ hc_failures + ['base: could not list cluster nodes'] }}"
+      when: >-
+        cluster_nodes is failed or
+        cluster_nodes.resources | default([]) | length == 0
+
+    - name: "Base | Record failure for any node that is not Ready"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: node ' + item.metadata.name + ' is not Ready'] }}"
+      loop: "{{ cluster_nodes.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: >-
+        item.status.conditions | default([])
+          | selectattr('type', 'equalto', 'Ready')
+          | selectattr('status', 'equalto', 'True')
+          | list | length == 0
+
+    - name: "Base | ClusterOperators are Available and not Degraded"
+      kubernetes.core.k8s_info:
+        api_version: config.openshift.io/v1
+        kind: ClusterOperator
+      register: cluster_operators
+      ignore_errors: true
+
+    - name: "Base | Record failure if any ClusterOperator is unavailable or degraded"
+      ansible.builtin.set_fact:
+        hc_failures: >-
+          {{ hc_failures + ['base: ClusterOperator ' + item.metadata.name + ' is not Available or is Degraded'] }}
+      loop: "{{ cluster_operators.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: >-
+        (item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'True') | list | length == 0)
+        or
+        (item.status.conditions | default([]) | selectattr('type', 'equalto', 'Degraded') | selectattr('status', 'equalto', 'True') | list | length > 0)
 
     - name: "Base | Showroom pod is running"
       kubernetes.core.k8s_info:
@@ -123,7 +110,7 @@
         showroom_pods.resources | default([]) | length == 0 or
         showroom_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0
 
-    - name: "Base | Subscriptions are installed"
+    - name: "Base | Operator Subscriptions are installed"
       kubernetes.core.k8s_info:
         api_version: operators.coreos.com/v1alpha1
         kind: Subscription
@@ -136,89 +123,6 @@
       when: >-
         operator_subscriptions is failed or
         operator_subscriptions.resources | default([]) | length == 0
-
-    # -- Module checks (only for modules enabled on this claim) --------
-
-    # common.yaml's _hcp_workloads bundle (triggered by module_enable_acm
-    # alone) also deploys OpenShift Virtualization and GitOps as HCP/KubeVirt
-    # infrastructure, independent of module_enable_virt/_gitops. So a claim
-    # with only module_enable_acm=true still gets both deployed and needs
-    # both checked, even with their own module flags off.
-    - name: "Virt | Run virtualization module checks"
-      ansible.builtin.include_tasks: tasks/virt.yml
-      when: module_enable_virt or module_enable_acm
-
-    - name: "Gitops | Run GitOps module checks"
-      ansible.builtin.include_tasks: tasks/gitops.yml
-      when: module_enable_gitops or module_enable_acm
-
-    - name: "Devhub | Run Developer Hub module checks"
-      ansible.builtin.include_tasks: tasks/devhub.yml
-      when: module_enable_devhub
-
-    # security, ztwim, and vault are provisioned together as ONE bundle
-    # (common.yaml's _security_workloads: RHACS + console-embed +
-    # compliance-operator + ztwim + vault) whenever ANY of
-    # module_enable_security / _ztwim / _vault is true -- there's no way to
-    # enable just one of the three at provisioning time. Gate all three
-    # checks on the same combined condition so e.g. a claim with only
-    # module_enable_vault=true still gets RHACS/compliance-operator/ZTWIM
-    # checked, since they were deployed regardless.
-    - name: "Security | Run security module checks"
-      ansible.builtin.include_tasks: tasks/security.yml
-      when: module_enable_security or module_enable_ztwim or module_enable_vault
-
-    - name: "Ols | Run OpenShift Lightspeed module checks"
-      ansible.builtin.include_tasks: tasks/ols.yml
-      when: module_enable_ols
-
-    - name: "Acm | Run ACM module checks"
-      ansible.builtin.include_tasks: tasks/acm.yml
-      when: module_enable_acm
-
-    - name: "Ztwim | Run Zero Trust Workload Identity Manager module checks"
-      ansible.builtin.include_tasks: tasks/ztwim.yml
-      when: module_enable_security or module_enable_ztwim or module_enable_vault
-
-    - name: "Vault | Run Vault module checks"
-      ansible.builtin.include_tasks: tasks/vault.yml
-      when: module_enable_security or module_enable_ztwim or module_enable_vault
-
-    - name: "Install | Run installation module checks"
-      ansible.builtin.include_tasks: tasks/install.yml
-      when: module_enable_install
-
-    - name: "Appmgmt | Run application management module checks"
-      ansible.builtin.include_tasks: tasks/appmgmt.yml
-      when: module_enable_appmgmt
-
-    - name: "Ingress | Run ingress module checks"
-      ansible.builtin.include_tasks: tasks/ingress.yml
-      when: module_enable_ingress
-
-    - name: "Netsec | Run network security module checks"
-      ansible.builtin.include_tasks: tasks/netsec.yml
-      when: module_enable_netsec
-
-    - name: "Debugging | Run debugging module checks"
-      ansible.builtin.include_tasks: tasks/debugging.yml
-      when: module_enable_debugging
-
-    - name: "Ldap | Run LDAP authentication module checks"
-      ansible.builtin.include_tasks: tasks/ldap.yml
-      when: module_enable_ldap
-
-    - name: "Oidc | Run OIDC authentication module checks"
-      ansible.builtin.include_tasks: tasks/oidc.yml
-      when: module_enable_oidc
-
-    - name: "Observability | Run observability module checks"
-      ansible.builtin.include_tasks: tasks/observability.yml
-      when: module_enable_observability
-
-    - name: "Performance | Run performance tuning module checks"
-      ansible.builtin.include_tasks: tasks/performance.yml
-      when: module_enable_performance
 
     # -- Report ----------------------------------------------------------
 

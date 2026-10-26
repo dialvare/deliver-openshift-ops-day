@@ -1,20 +1,23 @@
 ---
-# E2E — End-to-end test
-# Runs all module solve + validate sequences to verify the full lab
-# works from start to finish without manual intervention.
+# E2E — Per-module readiness / availability
+# Verifies the lab environment is functional end to end: the base environment
+# plus the backing infrastructure each enabled module depends on.
+# (This is the former per-module healthcheck.)
 #
-# Unlike healthcheck.yml, this is NOT read-only -- module task files under
-# tasks/e2e/ create and clean up real resources to simulate what a learner
-# would actually do.
-#
-# This lab has a module selector (module_enable_* catalog parameters, see
-# rh1-2027/lb1543-ocp-ops-day-cnv/common.yaml), so not every claim deploys
-# the same workloads. Module-specific e2e sequences live in tasks/e2e/ and
+# This lab has a module selector (module_enable_* catalog parameters,
+# see rh1-2027/lb1543-ocp-ops-day-cnv/common.yaml) so not every claim
+# deploys the same workloads. Module-specific checks live in tasks/ and
 # are only included when their module was actually enabled for this claim
-# (read from the MODULE_ENABLE_* env vars common.yaml sets on the Showroom
-# pod), mirroring the same module-awareness healthcheck.yml uses. Module 1
-# (Overview) below is base content, not gated by any module_enable_* flag,
-# so it always runs.
+# (read from the MODULE_ENABLE_* env vars common.yaml sets on the
+# Showroom pod). Base checks below always run regardless of module
+# selection.
+#
+# Every check is collected instead of failing fast, so one run reports
+# everything that's broken instead of stopping at the first problem --
+# useful when several independent modules could each be broken on their
+# own.
+#
+# Exit 0 = healthy, non-zero = unhealthy.
 
 - name: End-to-End Test
   hosts: localhost
@@ -26,30 +29,18 @@
   # ocp4_workload_showroom_runtime_automation_* variables in
   # agnosticd/showroom's ocp4_workload_showroom role). Without this, tasks
   # fall back to the pod's own in-cluster identity, which is `edit`-scoped to
-  # its own namespace only and cannot read resources in
-  # openshift-gitops/monorepo-demo/ansible_test_monorepo.
+  # its own namespace only and cannot read resources like the
+  # openshift-gitops Application below.
   module_defaults:
     group/kubernetes.core.k8s:
       kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-  # module_defaults above only reaches kubernetes.core.k8s* modules. The raw
-  # `oc apply` command below needs KUBECONFIG (the CLI's own env var). The
-  # nested `ansible-playbook automation/ansible/playbooks/setup.yml`
-  # subprocess needs K8S_AUTH_KUBECONFIG instead -- its create_namespace/
-  # deploy_busybox roles call kubernetes.core.k8s directly with no
-  # kubeconfig of their own, and that module only honors its own
-  # K8S_AUTH_KUBECONFIG env var, not the generic KUBECONFIG. Set both so
-  # every identity-sensitive call in this play resolves to the
-  # runtime-automation identity instead of falling back to the pod's own
-  # in-cluster identity (edit-scoped to its own namespace).
-  environment:
-    KUBECONFIG: "{{ k8s_kubeconfig | default(omit) }}"
-    K8S_AUTH_KUBECONFIG: "{{ k8s_kubeconfig | default(omit) }}"
   vars:
+    monorepo_path: /showroom/repo
     hc_failures: []
     # The env lookup returns '' (not undefined) when a var isn't set, so
     # default() needs boolean=true to treat '' as missing too -- otherwise
     # it never overrides the empty string and every module gate defaults
-    # to disabled instead of enabled. Kept in sync with healthcheck.yml.
+    # to disabled instead of enabled.
     module_enable_virt: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_VIRT') | default('true', true) | bool }}"
     module_enable_gitops: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_GITOPS') | default('true', true) | bool }}"
     module_enable_devhub: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_DEVHUB') | default('true', true) | bool }}"
@@ -63,6 +54,8 @@
     module_enable_ingress: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_INGRESS') | default('true', true) | bool }}"
     module_enable_netsec: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_NETSEC') | default('true', true) | bool }}"
     module_enable_debugging: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_DEBUGGING') | default('true', true) | bool }}"
+    module_enable_ldap: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_LDAP') | default('true', true) | bool }}"
+    module_enable_oidc: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_OIDC') | default('true', true) | bool }}"
     module_enable_observability: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_OBSERVABILITY') | default('true', true) | bool }}"
     module_enable_performance: "{{ lookup('ansible.builtin.env', 'MODULE_ENABLE_PERFORMANCE') | default('true', true) | bool }}"
   tasks:
@@ -72,89 +65,170 @@
     - name: "Auth | Establish cluster authentication"
       ansible.builtin.include_tasks: tasks/_auth.yml
 
-    # -- Module 1: Overview (base content, always runs) ----------------
+    # -- Base checks (always run) --------------------------------------
 
-    - name: "Overview | Run Module 1 end-to-end sequence"
-      ansible.builtin.include_tasks: tasks/e2e/overview.yml
+    - name: "Base | Monorepo is cloned at expected path"
+      ansible.builtin.stat:
+        path: "{{ monorepo_path }}"
+      register: repo_stat
+      ignore_errors: true
 
-    # -- Module e2e sequences (only for modules enabled on this claim) -
-    #
-    # Gates mirror the *provisioning* bundling documented in README.md
-    # (common.yaml doesn't map module_enable_* 1:1 to workloads), so a
-    # module's e2e content doesn't silently get skipped for a claim where
-    # the underlying workload was actually deployed under a different flag.
+    - name: "Base | Record failure if monorepo is missing"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: monorepo not found at ' + monorepo_path] }}"
+      when: >-
+        repo_stat is failed or
+        not repo_stat.stat.exists or not repo_stat.stat.isdir
 
-    - name: "Virt | Run virtualization module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/virt.yml
+    - name: "Base | Expected top-level directories are present"
+      ansible.builtin.stat:
+        path: "{{ monorepo_path }}/{{ item }}"
+      register: dir_stat
+      ignore_errors: true
+      loop:
+        - content
+        # - automation/gitops/bootstrap-infra
+        - automation/ansible
+
+    - name: "Base | Record failure for any missing top-level directory"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: expected directory missing: ' + item.item] }}"
+      loop: "{{ dir_stat.results }}"
+      when: item is failed or not item.stat.exists or not item.stat.isdir
+
+    - name: "Base | oc whoami"
+      ansible.builtin.command: oc whoami
+      register: oc_whoami
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Base | Record failure if not logged in to the cluster"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: oc whoami failed, not logged in to the cluster'] }}"
+      when: oc_whoami is failed or oc_whoami.rc != 0
+
+    - name: "Base | Showroom pod is running"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        label_selectors:
+          - app.kubernetes.io/name=showroom
+      register: showroom_pods
+      ignore_errors: true
+
+    - name: "Base | Record failure if Showroom pod is not running"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: no Running Showroom pod found'] }}"
+      when: >-
+        showroom_pods is failed or
+        showroom_pods.resources | default([]) | length == 0 or
+        showroom_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0
+
+    - name: "Base | Subscriptions are installed"
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+      register: operator_subscriptions
+      ignore_errors: true
+
+    - name: "Base | Record failure if no operator Subscriptions are installed"
+      ansible.builtin.set_fact:
+        hc_failures: "{{ hc_failures + ['base: no operator Subscriptions found'] }}"
+      when: >-
+        operator_subscriptions is failed or
+        operator_subscriptions.resources | default([]) | length == 0
+
+    # -- Module checks (only for modules enabled on this claim) --------
+
+    # common.yaml's _hcp_workloads bundle (triggered by module_enable_acm
+    # alone) also deploys OpenShift Virtualization and GitOps as HCP/KubeVirt
+    # infrastructure, independent of module_enable_virt/_gitops. So a claim
+    # with only module_enable_acm=true still gets both deployed and needs
+    # both checked, even with their own module flags off.
+    - name: "Virt | Run virtualization module checks"
+      ansible.builtin.include_tasks: tasks/virt.yml
       when: module_enable_virt or module_enable_acm
 
-    - name: "Gitops | Run GitOps module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/gitops.yml
+    - name: "Gitops | Run GitOps module checks"
+      ansible.builtin.include_tasks: tasks/gitops.yml
       when: module_enable_gitops or module_enable_acm
 
-    - name: "Devhub | Run Developer Hub module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/devhub.yml
+    - name: "Devhub | Run Developer Hub module checks"
+      ansible.builtin.include_tasks: tasks/devhub.yml
       when: module_enable_devhub
 
-    - name: "Security | Run security module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/security.yml
+    # security, ztwim, and vault are provisioned together as ONE bundle
+    # (common.yaml's _security_workloads: RHACS + console-embed +
+    # compliance-operator + ztwim + vault) whenever ANY of
+    # module_enable_security / _ztwim / _vault is true -- there's no way to
+    # enable just one of the three at provisioning time. Gate all three
+    # checks on the same combined condition so e.g. a claim with only
+    # module_enable_vault=true still gets RHACS/compliance-operator/ZTWIM
+    # checked, since they were deployed regardless.
+    - name: "Security | Run security module checks"
+      ansible.builtin.include_tasks: tasks/security.yml
       when: module_enable_security or module_enable_ztwim or module_enable_vault
 
-    - name: "Ols | Run OpenShift Lightspeed module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/ols.yml
+    - name: "Ols | Run OpenShift Lightspeed module checks"
+      ansible.builtin.include_tasks: tasks/ols.yml
       when: module_enable_ols
 
-    - name: "Acm | Run ACM module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/acm.yml
+    - name: "Acm | Run ACM module checks"
+      ansible.builtin.include_tasks: tasks/acm.yml
       when: module_enable_acm
 
-    - name: "Vault | Run Vault module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/vault.yml
+    - name: "Ztwim | Run Zero Trust Workload Identity Manager module checks"
+      ansible.builtin.include_tasks: tasks/ztwim.yml
       when: module_enable_security or module_enable_ztwim or module_enable_vault
 
-    - name: "Install | Run installation module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/install.yml
+    - name: "Vault | Run Vault module checks"
+      ansible.builtin.include_tasks: tasks/vault.yml
+      when: module_enable_security or module_enable_ztwim or module_enable_vault
+
+    - name: "Install | Run installation module checks"
+      ansible.builtin.include_tasks: tasks/install.yml
       when: module_enable_install
 
-    - name: "Appmgmt | Run application management module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/appmgmt.yml
+    - name: "Appmgmt | Run application management module checks"
+      ansible.builtin.include_tasks: tasks/appmgmt.yml
       when: module_enable_appmgmt
 
-    - name: "Ingress | Run ingress module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/ingress.yml
+    - name: "Ingress | Run ingress module checks"
+      ansible.builtin.include_tasks: tasks/ingress.yml
       when: module_enable_ingress
 
-    - name: "Netsec | Run network security module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/netsec.yml
+    - name: "Netsec | Run network security module checks"
+      ansible.builtin.include_tasks: tasks/netsec.yml
       when: module_enable_netsec
 
-    - name: "Debugging | Run debugging module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/debugging.yml
+    - name: "Debugging | Run debugging module checks"
+      ansible.builtin.include_tasks: tasks/debugging.yml
       when: module_enable_debugging
 
-    # ldap and oidc have no e2e sequence -- see tasks/ldap.yml and
-    # tasks/oidc.yml for why (cluster-wide oauth/cluster singleton, not
-    # safe to mutate outside a learner's own guided session).
+    - name: "Ldap | Run LDAP authentication module checks"
+      ansible.builtin.include_tasks: tasks/ldap.yml
+      when: module_enable_ldap
 
-    - name: "Observability | Run observability module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/observability.yml
+    - name: "Oidc | Run OIDC authentication module checks"
+      ansible.builtin.include_tasks: tasks/oidc.yml
+      when: module_enable_oidc
+
+    - name: "Observability | Run observability module checks"
+      ansible.builtin.include_tasks: tasks/observability.yml
       when: module_enable_observability
 
-    - name: "Performance | Run performance tuning module e2e sequence"
-      ansible.builtin.include_tasks: tasks/e2e/performance.yml
+    - name: "Performance | Run performance tuning module checks"
+      ansible.builtin.include_tasks: tasks/performance.yml
       when: module_enable_performance
 
-    # -- Report ------------------------------------------------------------
-    # acm.yml accumulates into hc_failures (same pattern as healthcheck.yml)
-    # rather than failing fast, so a single e2e run can report every problem
-    # found instead of stopping at the first one.
+    # -- Report ----------------------------------------------------------
 
     - name: Report healthy
       ansible.builtin.debug:
-        msg: "E2E passed, no failures found"
+        msg: "Healthcheck passed, no failures found"
       when: hc_failures | length == 0
 
-    - name: Fail if any e2e checks failed
+    - name: Fail if any checks failed
       ansible.builtin.fail:
         msg: "{{ hc_failures }}"
       when: hc_failures | length > 0
