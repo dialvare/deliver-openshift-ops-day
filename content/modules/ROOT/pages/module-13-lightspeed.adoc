@@ -3,7 +3,7 @@
 
 == Module Overview
 
-**Duration:** 30 minutes +
+**Duration:** 30-35 minutes +
 **Format:** Hands-on AI assistant exploration +
 **Audience:** Platform Engineers, Developers, Operations Teams
 
@@ -38,7 +38,7 @@ lightspeed-rhokp-54f9cb4fbb-rjfsm                    1/1     Running   0        
 openshift-mcp-server-b7c9b458d-tpbbc                 1/1     Running   0             22m
 ----
 
-This module walks through both. You'll start with the conversational assistant — exploring concepts, generating resources, managing workload lifecycles and troubleshooting an issue in your cluster — then move on to Agentic OpenShift Lightspeed to see what autonomous remediation looks like in practice, to resolve critical alerts and make cluster updates more predictable.
+In this module you'll start with the conversational assistant — exploring concepts, generating resources, managing workload lifecycles and troubleshooting an issue in your cluster — then move on to Agentic OpenShift Lightspeed to see what autonomous remediation looks like in practice, to resolve critical alerts and make cluster updates more predictable.
 
 == OpenShift Lightspeed Overview
 
@@ -186,7 +186,7 @@ Start by confirming there is a critical alert firing in the cluster. Navigate to
 
 image::ols-alert.png[Critical alert firing in the cluster, link=self, window=blank]
 
-Open the OpenShift Lightspeed chat and click **Clear chat** (the trash can icon) to start fresh. Then select **Troubleshooting** mode from the mode selector above the message box:
+Open the OpenShift Lightspeed chat and click **Clear chat** (the trash can icon) to start fresh. Then select **Troubleshooting** mode from the mode selector in the message box:
 
 image::ols-troubleshooting-mode.png[Troubleshooting mode in OpenShift Lightspeed, width=600, link=self, window=blank]
 
@@ -264,9 +264,17 @@ oc rollout restart deployment/lightspeed-agentic-alerts-adapter -n openshift-lig
 
 NOTE: In a standard deployment the OpenShift Lightspeed operator detects ConfigMap changes and rolls out the updated configuration automatically. This demo environment requires a manual restart.
 
-Now, in your OpenShift web console, you should see two new runs under **Agentic Runs** → **Agentic Runs**, created automatically by the adapter in response to the firing alerts.
+Now, in your OpenShift web console, you should see new runs under **Agentic Runs** → **Agentic Runs**, created automatically by the adapter in response to the firing alerts. These resources are in a _Pending_ state, because we configured the Analysis phase as manual. 
 
-The one related to our previous issue should be named `poddisruptionbudgetlimit-critical`. Click on it to open the detail view.
+Review the configuration by clicking the **engine icon** in the upper-right corner. The new page shows the actual approval configuration and allows you to change it:
+
+image::ols-approval-settings.png[Agentic Runs approval settings, link=self, window=blank]
+
+As mentioned before, _Analysis_ and _Execution_ are set to _Manual_, meaning the user needs to trigger the workflow manually and review the execution plan before accepting it. 
+
+Do not change this configuration. Navigate back to the **Agentic Runs** → **Agentic Runs** view. 
+
+Click on the Agentic Run related to our previous issue, named `poddisruptionbudgetlimit-critical` to open the detail view.
 
 image::ols-agentic-run.png[PodDisruptionBudgetLimit Agentic Run details, link=self, window=blank]
 
