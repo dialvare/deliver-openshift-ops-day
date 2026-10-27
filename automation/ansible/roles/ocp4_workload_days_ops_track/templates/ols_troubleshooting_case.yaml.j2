@@ -1,0 +1,52 @@
+---
+# Deployment with a failing init container simulating a broken dependency check.
+# The init container exits with code 1 on every attempt, keeping pods in
+# Init:CrashLoopBackOff. With 3 desired replicas and PDB minAvailable: 2,
+# the PodDisruptionBudgetLimit alert fires automatically from platform monitoring.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: critical-service
+  namespace: critical
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: critical-service
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: critical-service
+    spec:
+      initContainers:
+        - name: dependency-check
+          image: registry.redhat.io/ubi9/ubi:latest
+          command: ["sh", "-c", "echo 'ERROR: Required service unavailable'; exit 1"]
+      containers:
+        - name: critical-service
+          image: registry.redhat.io/ubi9/ubi:latest
+          command: ["python3", "-m", "http.server", "8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+# PodDisruptionBudget requires minAvailable: 2 but 0 pods reach Running state.
+# This violation triggers the built-in PodDisruptionBudgetLimit critical alert.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: critical-service-pdb
+  namespace: critical
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: critical-service
