@@ -348,6 +348,10 @@ In the **OCP Console** tab, log out of `developer1`. On the login page, select *
 *Before moving on:* Please run the cleanup commands in this module. This cluster has limited resources - leaving workloads running can cause resource pressure that may affect your experience in later modules.
 ====
 
+As in Step 7, log out of the **OCP Console** tab before running the cleanup script below, to avoid freezing the tab while OAuth restarts:
+
+1. In the **OCP Console** tab, click your username (top-right) and select **Log out**
+
 [source,bash,subs="+attributes",role="execute"]
 ----
 if curl -fsSL --retry 3 --retry-delay 2 -o /tmp/cleanup-oidc.sh {support_base_url}/cleanup-scripts/cleanup-oidc.sh; then
@@ -358,6 +362,8 @@ else
   echo "ERROR: Could not download cleanup-oidc.sh from the Showroom instance or GitHub. Check your network connection and re-run this command."
 fi
 ----
+
+**Do not reload the OCP Console tab (or log back in) before the script prints "Cleanup complete...".**
 
 === Summary
 
