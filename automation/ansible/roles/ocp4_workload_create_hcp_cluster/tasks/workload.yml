@@ -253,6 +253,16 @@
 # controller has gotten to it, those pods stay stuck in Init forever - there
 # is no unpause step to let it catch up later. So we also gate pausing on the
 # guest Infrastructure object already being populated.
+#
+# That single check isn't enough on its own (seen in job_111324/cluster-l48kw):
+# status.infrastructureName can be set very early by the guest cluster's own
+# bootstrap manifests, before hosted-cluster-config-operator's own pod has even
+# started. When HCCO then starts for the first time moments later, its initial
+# "resources" controller reconcile can recreate the Infrastructure object
+# without status, wiping it out right after our check passed. So we also wait
+# for HCCO itself to be Ready before checking guest Infrastructure, and then
+# require the status to still be populated on a second check after a settle
+# delay, to rule out it getting clobbered by HCCO's own startup reconcile.
 # ==============================================================================
 
 - name: Wait for catalog-operator Deployment to appear in HCP control plane namespace
@@ -265,6 +275,20 @@
   retries: 18
   delay: 10
   until: r_hcp_catalog_operator.resources | length > 0
+  ignore_errors: true
+
+- name: Wait for hosted-cluster-config-operator Deployment to be Ready in HCP control plane namespace
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: hosted-cluster-config-operator
+    namespace: "clusters-{{ ocp4_workload_create_hcp_cluster_name }}"
+  register: r_hcp_hcco
+  retries: 30
+  delay: 10
+  until:
+    - r_hcp_hcco.resources | default([]) | length > 0
+    - r_hcp_hcco.resources[0].status.readyReplicas | default(0) | int > 0
   ignore_errors: true
 
 - name: Get hosted cluster kubeconfig secret name
@@ -300,14 +324,55 @@
     - r_guest_infrastructure.resources[0].status.infrastructureName | length > 0
   ignore_errors: true
 
+# hosted-cluster-config-operator can still clobber a status.infrastructureName
+# that existed only via early bootstrap manifests shortly after it starts up
+# (see note above). Re-check after a settle delay, re-running the same wait if
+# it got wiped, so a transient post-HCCO-startup reconcile doesn't fool us into
+# pausing against a since-blanked object.
+- name: Settle delay before confirming guest Infrastructure status is stable
+  pause:
+    seconds: 20
+  when: r_guest_infrastructure.resources | default([]) | length > 0
+    and r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length > 0
+
+- name: Re-check guest Infrastructure status survived the settle delay
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: Infrastructure
+    name: cluster
+    kubeconfig: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
+  register: r_guest_infrastructure_settled
+  when: r_guest_infrastructure.resources | default([]) | length > 0
+    and r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length > 0
+  ignore_errors: true
+
+- name: Wait again for guest Infrastructure status if it was wiped during the settle delay
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: Infrastructure
+    name: cluster
+    kubeconfig: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
+  register: r_guest_infrastructure
+  retries: 30
+  delay: 10
+  until:
+    - r_guest_infrastructure.resources | default([]) | length > 0
+    - r_guest_infrastructure.resources[0].status.infrastructureName is defined
+    - r_guest_infrastructure.resources[0].status.infrastructureName | length > 0
+  ignore_errors: true
+  when: r_guest_infrastructure_settled is skipped or
+        r_guest_infrastructure_settled.resources | default([]) | length == 0 or
+        r_guest_infrastructure_settled.resources[0].status.infrastructureName | default('') | length == 0
+
 - name: DEBUG - Warn if guest Infrastructure never converged before pause
   debug:
     msg: >-
-      Guest Infrastructure/cluster status.infrastructureName was not set after
-      waiting - skipping the permanent HostedCluster pause so
-      hosted-cluster-config-operator can keep reconciling it. CNO/ingress-operator
-      availability-prober pods would otherwise be stuck in Init forever since
-      there is no unpause step later in this role.
+      Guest Infrastructure/cluster status.infrastructureName was not set (or
+      did not survive the post-settle re-check) after waiting - skipping the
+      permanent HostedCluster pause so hosted-cluster-config-operator can keep
+      reconciling it. CNO/ingress-operator availability-prober pods would
+      otherwise be stuck in Init forever since there is no unpause step later
+      in this role.
   when: r_guest_infrastructure.resources | default([]) | length == 0 or
         r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length == 0
 
