@@ -120,7 +120,7 @@ The image tag `9.9` doesn't exist - the registry can't find it. Let's confirm th
 
 [source,bash,role="execute"]
 ----
-oc get deployment weather-frontend -n debug-lab -o jsonpath='{.spec.template.spec.containers[0].image}'
+oc get deployment weather-frontend -n debug-lab -o jsonpath='{.spec.template.spec.containers[0].image}' && echo
 ----
 
 **Fix**
@@ -166,7 +166,7 @@ If the pod has already restarted, use `--previous` to read the last run's output
 
 [source,bash,role="execute"]
 ----
-oc logs -l app=weather-api -n debug-lab --previous 2>/dev/null || true
+oc logs -l app=weather-api -n debug-lab --previous 2>/dev/null || true && echo
 ----
 
 The app is trying to read a config file that doesn't exist.
@@ -396,7 +396,7 @@ This is a **Security Context Constraint (SCC)** issue. Check which SCC the pod i
 
 [source,bash,role="execute"]
 ----
-oc get pod -l app=weather-db -n debug-lab -o jsonpath='{.items[0].metadata.annotations.openshift\.io/scc}'
+oc get pod -l app=weather-db -n debug-lab -o jsonpath='{.items[0].metadata.annotations.openshift\.io/scc}' && echo
 ----
 
 It shows `restricted-v2`. This SCC assigns a random user ID to the container for security - the container does NOT run as root. The directory `/var/lib/pgsql` is owned by root inside the image, so the random UID can't write to it.

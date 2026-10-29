@@ -95,7 +95,7 @@ Check which update channel you're subscribed to:
 
 [source,bash,role="execute"]
 ----
-oc get clusterversion version -o jsonpath='{.spec.channel}'
+oc get clusterversion version -o jsonpath='{.spec.channel}' && echo
 ----
 
 Common channels:

@@ -349,7 +349,7 @@ Verify the original image is restored:
 
 [source,bash,role="execute"]
 ----
-oc get deployment weathernow -n app-management -o jsonpath='{.spec.template.spec.containers[0].image}'
+oc get deployment weathernow -n app-management -o jsonpath='{.spec.template.spec.containers[0].image}' && echo
 ----
 
 You should see the original WeatherNow image (shown as a digest since OpenShift resolves image tags via the ImageStream):

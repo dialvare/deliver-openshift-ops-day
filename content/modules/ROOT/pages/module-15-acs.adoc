@@ -228,7 +228,7 @@ This view shows you the details of the check for the production cluster. As you 
 +
 [source,sh,subs="attributes",role=execute]
 ----
-oc get image.config.openshift.io cluster -o jsonpath='{.spec.registrySources.allowedRegistries}'
+oc get image.config.openshift.io cluster -o jsonpath='{.spec.registrySources.allowedRegistries}' && echo
 ----
 
 image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHI1ZGQwYWNnd3doY2s4MDNpenZ1MWlzeDlqNWhyNzF5c2JveWNybSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xTQXENNW77nUsNVmV4/giphy.gif[Fun celebration, link=self, window=blank, width=400]
