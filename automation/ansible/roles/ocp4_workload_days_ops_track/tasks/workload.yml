@@ -333,6 +333,41 @@
       msg: "WARNING: fix-cnv-snapshots.sh failed (rc={{ r_cnv_snapshot_fix.rc }}). VMSnapshot/VMClone may not work. Check logs above."
     when: r_cnv_snapshot_fix.rc | default(0) != 0
 
+# ==============================================================================
+# Upgrade blockers fix (channel drift, CSV version ceilings, stale Unmanaged
+# CSISnapshotController)
+#
+# Runs unconditionally at provision time so these are already resolved before
+# anyone later attempts a cluster upgrade:
+# 1. Switches the update channel to match an installed -rc./-ec. build, since
+#    those builds are only ever in the matching candidate channel, not stable.
+# 2. Strips stale olm.maxOpenShiftVersion ceilings from installed CSVs.
+# 3. Reverts CSISnapshotController to Managed, but only when it's on the OCP
+#    line where the underlying csi-snapshotter fix is confirmed (see script)
+#    and the VolumeGroupSnapshot CRDs are still v1-only — so this never
+#    touches a cluster still relying on fix-cnv-snapshots.sh's workaround.
+# See support/fix-upgrade-blockers.sh for full detail.
+# ==============================================================================
+- name: Copy fix-upgrade-blockers.sh to runner
+  copy:
+    src: fix-upgrade-blockers.sh
+    dest: /tmp/fix-upgrade-blockers.sh
+    mode: '0755'
+
+- name: Run fix-upgrade-blockers.sh
+  shell: /tmp/fix-upgrade-blockers.sh
+  register: r_upgrade_blockers_fix
+  ignore_errors: true
+
+- name: Display upgrade blockers fix output
+  debug:
+    msg: "{{ r_upgrade_blockers_fix.stdout_lines | default([]) }}"
+
+- name: Warn if upgrade blockers fix failed
+  debug:
+    msg: "WARNING: fix-upgrade-blockers.sh failed (rc={{ r_upgrade_blockers_fix.rc }}). Cluster may later report Upgradeable=False or get stuck mid-upgrade. Check logs above."
+  when: r_upgrade_blockers_fix.rc | default(0) != 0
+
 - name: DEBUG - ACM/Multicluster Engine status
   shell: |
     echo "=== ACM NAMESPACE ==="
