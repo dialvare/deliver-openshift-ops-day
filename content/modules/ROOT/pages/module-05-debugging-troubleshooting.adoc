@@ -166,7 +166,7 @@ If the pod has already restarted, use `--previous` to read the last run's output
 
 [source,bash,role="execute"]
 ----
-oc logs -l app=weather-api -n debug-lab --previous 2>/dev/null || true && echo
+oc logs -l app=weather-api -n debug-lab --previous 2>/dev/null || true
 ----
 
 The app is trying to read a config file that doesn't exist.
