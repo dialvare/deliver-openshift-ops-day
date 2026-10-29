@@ -334,10 +334,7 @@ This is the standard RBAC pattern - users belong to groups, groups get RoleBindi
 oc login -u {openshift_cluster_admin_username} -p {openshift_cluster_admin_password} --insecure-skip-tls-verify
 ----
 
-In the **OCP Console** tab, log out of `developer1`. On the login page, select **htpasswd** and sign back in with the admin credentials:
-
-* **Username:** `{openshift_cluster_admin_username}`
-* **Password:** `{openshift_cluster_admin_password}`
+In the **OCP Console** tab, log out of `developer1`.
 
 == Cleanup & Summary
 

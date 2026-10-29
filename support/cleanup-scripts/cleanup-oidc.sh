@@ -23,8 +23,19 @@ spec:
         name: htpasswd
 EOF
 
-# Delete client secret and OIDC users/groups
-oc delete secret rhbk-client-secret -n openshift-config --ignore-not-found
+echo "Waiting for OAuth operator to pick up the config change..."
+ELAPSED=0
+until [ "$(oc get deployment oauth-openshift -n openshift-authentication -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "$GEN")" != "$GEN" ]; do
+  sleep 2; ELAPSED=$((ELAPSED+2))
+  [ $ELAPSED -ge 60 ] && echo "Warning: OAuth operator slow to pick up config change - continuing to wait below" && break
+done
+
+# Delete OIDC users/groups now. The client secret is left in place until the
+# OAuth rollout has stabilized below - deleting it here races with the
+# authentication-operator's synced copy (v4-0-config-user-idp-*-client-secret
+# in openshift-authentication), which the still-rolling-out old oauth-openshift
+# pod needs to mount. Pulling it out from under that pod gets it killed with a
+# FailedMount error and causes a brief login outage until the new pod is up.
 oc delete user developer1 admin1 viewer1 --ignore-not-found
 # Only the rhbk-provider identities - not --all, which would also delete
 # htpasswd:admin along with them and break admin's OAuth login until the
@@ -86,7 +97,8 @@ while :; do
   fi
 done
 
-# Now safe to remove the Keycloak/rhbk backend and test projects.
+# Now safe to remove the client secret, the Keycloak/rhbk backend, and test projects.
+oc delete secret rhbk-client-secret -n openshift-config --ignore-not-found
 echo "Deleting rhbk namespace and projects - this can take a minute or two..."
 oc delete namespace rhbk --ignore-not-found --timeout=180s \
   || echo "WARNING: rhbk namespace did not finish terminating within 180s - it will keep terminating in the background, this is not a safety concern on its own"

@@ -39,6 +39,13 @@ EOF
 echo "Applying OAuth configuration..."
 oc apply -f $HOME/support/oauth-cluster.yaml
 
+echo "Waiting for OAuth operator to pick up the config change..."
+ELAPSED=0
+until [ "$(oc get deployment oauth-openshift -n openshift-authentication -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "$GEN")" != "$GEN" ]; do
+  sleep 2; ELAPSED=$((ELAPSED+2))
+  [ $ELAPSED -ge 60 ] && echo "Warning: OAuth operator slow to pick up config change - continuing to wait below" && break
+done
+
 # The authentication operator applies this change in several stages (trust
 # bundle sync, cert rotation, etc.), and oauth-openshift can roll out more
 # than once in a row as a result. Declaring success after the first rollout
