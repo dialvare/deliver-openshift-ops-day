@@ -202,7 +202,7 @@ image::observe-cluster-metrics-dashboard.png[Kubernetes Cluster Metrics Dashboar
 +
 [source,role="copypaste"]
 ----
-sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)
+sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace)
 ----
 +
 3. Click **Run Queries**
@@ -437,7 +437,7 @@ Hundreds of operators ready to install - a mix of Red Hat, certified partner, an
 **Explore Software Catalog (Console)**
 
 1. Navigate to **Ecosystem → Software Catalog**
-2. You may need to select a project from the dropdown - if one is not already selected, choose **default**
+2. You may need to select a project from the dropdown - if one is not already selected, choose any project from the list (which one is selected doesn't affect what you see in this catalog)
 3. You'll see the unified software catalog with categories on the left:
    - **AI/Machine Learning** - Red Hat OpenShift AI, Open Data Hub
    - **CI/CD** - Red Hat OpenShift GitOps, Red Hat OpenShift Pipelines
