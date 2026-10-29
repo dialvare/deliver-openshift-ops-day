@@ -111,6 +111,50 @@
     - module_enable_acm | default(true) | bool
   ignore_errors: true
 
+# ==============================================================================
+# Upgrade blockers fix (channel drift, CSV version ceilings, stale Unmanaged
+# CSISnapshotController)
+#
+# Runs here, as the last step of provisioning, rather than earlier in
+# ocp4_workload_days_ops_track: by this point every optional module (ACM/MCE,
+# security/RHACS, OADP, etc.) has already installed its operators, so the
+# CSV version-ceiling scan below actually sees every CSV on the cluster
+# instead of only the small set installed before this point.
+#
+# 1. Switches the update channel to match an installed -rc./-ec. build, since
+#    those builds are only ever in the matching candidate channel, not stable.
+# 2. Strips stale olm.maxOpenShiftVersion ceilings from installed CSVs.
+# 3. Reverts CSISnapshotController to Managed, but only when it's on the OCP
+#    line where the underlying csi-snapshotter fix is confirmed (see script)
+#    and the VolumeGroupSnapshot CRDs are still v1-only — so this never
+#    touches a cluster still relying on fix-cnv-snapshots.sh's workaround.
+# See support/fix-upgrade-blockers.sh for full detail.
+# ==============================================================================
+- name: Copy fix-upgrade-blockers.sh to runner
+  copy:
+    src: fix-upgrade-blockers.sh
+    dest: /tmp/fix-upgrade-blockers.sh
+    mode: '0755'
+  when: ACTION == "provision"
+
+- name: Run fix-upgrade-blockers.sh
+  shell: /tmp/fix-upgrade-blockers.sh
+  register: r_upgrade_blockers_fix
+  ignore_errors: true
+  when: ACTION == "provision"
+
+- name: Display upgrade blockers fix output
+  debug:
+    msg: "{{ r_upgrade_blockers_fix.stdout_lines | default([]) }}"
+  when: ACTION == "provision"
+
+- name: Warn if upgrade blockers fix failed
+  debug:
+    msg: "WARNING: fix-upgrade-blockers.sh failed (rc={{ r_upgrade_blockers_fix.rc }}). Cluster may later report Upgradeable=False or get stuck mid-upgrade. Check logs above."
+  when:
+    - ACTION == "provision"
+    - r_upgrade_blockers_fix.rc | default(0) != 0
+
 - name: Skip cleanup on destroy
   when: ACTION == "destroy"
   debug:
