@@ -7,7 +7,8 @@
 # 2. Strip stale olm.maxOpenShiftVersion ceilings from installed CSVs when the
 #    same version is still the newest available in the configured catalogs.
 # 3. Revert CSISnapshotController to Managed if support/11-virtualization/fix-cnv-snapshots.sh
-#    left it Unmanaged, once the VolumeGroupSnapshot CRDs are confirmed safe to do so.
+#    left it Unmanaged, once the VolumeGroupSnapshot CRDs are confirmed safe to do so and the
+#    installed version is on the line where the underlying csi-snapshotter fix has been verified.
 #
 # Live-cluster-only; safe to re-run (idempotent); no-ops where nothing needs fixing.
 
@@ -100,24 +101,35 @@ echo "[3/3] Checking CSISnapshotController management state..."
 CURRENT_STATE=$(oc get csisnapshotcontroller cluster -o jsonpath='{.spec.managementState}' 2>/dev/null)
 
 if [ "${CURRENT_STATE}" == "Unmanaged" ]; then
-  echo "  CSISnapshotController is Unmanaged. Checking VolumeGroupSnapshot CRD storedVersions..."
-  SAFE=true
-  for crd in volumegroupsnapshotclasses volumegroupsnapshotcontents volumegroupsnapshots; do
-    CRD_FULL="${crd}.groupsnapshot.storage.k8s.io"
-    STORED=$(oc get crd "${CRD_FULL}" -o jsonpath='{.status.storedVersions}' 2>/dev/null)
-    if [ "${STORED}" != '["v1"]' ]; then
-      echo "  ${crd}: storedVersions=${STORED:-<not found>} (not v1-only) — NOT safe to revert"
-      SAFE=false
-    fi
-  done
-
-  if [ "${SAFE}" == "true" ]; then
-    echo "  All VolumeGroupSnapshot CRDs are v1-only. Reverting CSISnapshotController to Managed..."
-    oc patch csisnapshotcontroller cluster --type=merge -p '{"spec":{"managementState":"Managed"}}' 2>&1
+  MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
+  VERSION_VERIFIED=false
+  if [[ "${MAJOR}" =~ ^[0-9]+$ ]] && [ "${MAJOR}" -ge 5 ]; then
+    VERSION_VERIFIED=true
+  fi
+  if [ "${VERSION_VERIFIED}" != "true" ]; then
+    echo "  CSISnapshotController is Unmanaged on ${CURRENT_VERSION}. The underlying csi-snapshotter"
+    echo "  fix has not been verified on this version yet — leaving Unmanaged here. See"
+    echo "  support/11-virtualization/fix-cnv-snapshots.sh for context."
   else
-    echo "  WARNING: leaving CSISnapshotController Unmanaged. Reverting now risks OpenShift's CRD"
-    echo "  (which only declares v1) rejecting a still-stored extra version. Investigate"
-    echo "  manually — see support/11-virtualization/fix-cnv-snapshots.sh for context."
+    echo "  CSISnapshotController is Unmanaged on ${CURRENT_VERSION}. Checking VolumeGroupSnapshot CRD storedVersions..."
+    SAFE=true
+    for crd in volumegroupsnapshotclasses volumegroupsnapshotcontents volumegroupsnapshots; do
+      CRD_FULL="${crd}.groupsnapshot.storage.k8s.io"
+      STORED=$(oc get crd "${CRD_FULL}" -o jsonpath='{.status.storedVersions}' 2>/dev/null)
+      if [ "${STORED}" != '["v1"]' ]; then
+        echo "  ${crd}: storedVersions=${STORED:-<not found>} (not v1-only) — NOT safe to revert"
+        SAFE=false
+      fi
+    done
+
+    if [ "${SAFE}" == "true" ]; then
+      echo "  All VolumeGroupSnapshot CRDs are v1-only. Reverting CSISnapshotController to Managed..."
+      oc patch csisnapshotcontroller cluster --type=merge -p '{"spec":{"managementState":"Managed"}}' 2>&1
+    else
+      echo "  WARNING: leaving CSISnapshotController Unmanaged. Reverting now risks OpenShift's CRD"
+      echo "  (which only declares v1) rejecting a still-stored extra version. Investigate"
+      echo "  manually — see support/11-virtualization/fix-cnv-snapshots.sh for context."
+    fi
   fi
 else
   echo "  CSISnapshotController managementState=${CURRENT_STATE:-Managed}, nothing to do."
