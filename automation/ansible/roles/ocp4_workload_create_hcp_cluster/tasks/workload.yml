@@ -352,17 +352,40 @@
     kind: Infrastructure
     name: cluster
     kubeconfig: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
-  register: r_guest_infrastructure
+  register: r_guest_infrastructure_rewait
   retries: 30
   delay: 10
   until:
-    - r_guest_infrastructure.resources | default([]) | length > 0
-    - r_guest_infrastructure.resources[0].status.infrastructureName is defined
-    - r_guest_infrastructure.resources[0].status.infrastructureName | length > 0
+    - r_guest_infrastructure_rewait.resources | default([]) | length > 0
+    - r_guest_infrastructure_rewait.resources[0].status.infrastructureName is defined
+    - r_guest_infrastructure_rewait.resources[0].status.infrastructureName | length > 0
   ignore_errors: true
   when: r_guest_infrastructure_settled is skipped or
         r_guest_infrastructure_settled.resources | default([]) | length == 0 or
         r_guest_infrastructure_settled.resources[0].status.infrastructureName | default('') | length == 0
+
+# r_guest_infrastructure_rewait is only ever populated when the settle re-check
+# above found the status missing - it must not be the sole source of truth, or
+# the common case (status survived the settle delay, so this task is skipped)
+# would wrongly read as "never converged". Ansible still overwrites a registered
+# var on a skipped task with an empty/skipped result, which is exactly the bug
+# this replaced: reusing r_guest_infrastructure as the register name here let a
+# skipped "wait again" task clobber the earlier good result and made every run
+# look unconverged, silently disabling the permanent pause entirely.
+- name: Determine whether guest Infrastructure status is confirmed stable
+  set_fact:
+    _guest_infra_ready: >-
+      {{
+        (r_guest_infrastructure_rewait is defined and
+         r_guest_infrastructure_rewait is not skipped and
+         r_guest_infrastructure_rewait.resources | default([]) | length > 0 and
+         r_guest_infrastructure_rewait.resources[0].status.infrastructureName | default('') | length > 0)
+        or
+        (r_guest_infrastructure_settled is defined and
+         r_guest_infrastructure_settled is not skipped and
+         r_guest_infrastructure_settled.resources | default([]) | length > 0 and
+         r_guest_infrastructure_settled.resources[0].status.infrastructureName | default('') | length > 0)
+      }}
 
 - name: DEBUG - Warn if guest Infrastructure never converged before pause
   debug:
@@ -373,8 +396,7 @@
       reconciling it. CNO/ingress-operator availability-prober pods would
       otherwise be stuck in Init forever since there is no unpause step later
       in this role.
-  when: r_guest_infrastructure.resources | default([]) | length == 0 or
-        r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length == 0
+  when: not _guest_infra_ready
 
 - name: Pause HostedCluster to prevent HyperShift from reconciling OLM catalog-operator
   kubernetes.core.k8s:
@@ -388,8 +410,7 @@
         pausedUntil: "true"
   when:
     - r_hcp_catalog_operator.resources | length > 0
-    - r_guest_infrastructure.resources | default([]) | length > 0
-    - r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length > 0
+    - _guest_infra_ready
 
 - name: Remove guest kubeconfig written to disk for the Infrastructure check
   file:
