@@ -243,6 +243,16 @@
 # must confirm catalog-operator actually exists before pausing — pausing
 # first risked HyperShift never creating it at all, permanently breaking OLM
 # in the hosted cluster (seen in job_264241/cluster-z7px4).
+#
+# pausedUntil freezes ALL HyperShift reconciliation for this HostedCluster,
+# not just catalog-operator - including hosted-cluster-config-operator's
+# "resources" controller, which is what populates the guest cluster's own
+# Infrastructure/cluster status.infrastructureName. cluster-network-operator
+# and ingress-operator each run an availability-prober init container that
+# blocks startup until that field is set. If the pause lands before that
+# controller has gotten to it, those pods stay stuck in Init forever - there
+# is no unpause step to let it catch up later. So we also gate pausing on the
+# guest Infrastructure object already being populated.
 # ==============================================================================
 
 - name: Wait for catalog-operator Deployment to appear in HCP control plane namespace
@@ -257,6 +267,50 @@
   until: r_hcp_catalog_operator.resources | length > 0
   ignore_errors: true
 
+- name: Get hosted cluster kubeconfig secret name
+  set_fact:
+    _hcp_kubeconfig_secret: "{{ ocp4_workload_create_hcp_cluster_name }}-admin-kubeconfig"
+
+- name: Retrieve hosted cluster kubeconfig
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ _hcp_kubeconfig_secret }}"
+    namespace: "{{ ocp4_workload_create_hcp_cluster_namespace }}"
+  register: r_hcp_kubeconfig
+
+- name: Write hosted cluster kubeconfig to disk
+  copy:
+    content: "{{ r_hcp_kubeconfig.resources[0].data.kubeconfig | b64decode }}"
+    dest: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
+    mode: "0600"
+
+- name: Wait for guest Infrastructure object to be populated before pausing HostedCluster
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: Infrastructure
+    name: cluster
+    kubeconfig: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
+  register: r_guest_infrastructure
+  retries: 30
+  delay: 10
+  until:
+    - r_guest_infrastructure.resources | default([]) | length > 0
+    - r_guest_infrastructure.resources[0].status.infrastructureName is defined
+    - r_guest_infrastructure.resources[0].status.infrastructureName | length > 0
+  ignore_errors: true
+
+- name: DEBUG - Warn if guest Infrastructure never converged before pause
+  debug:
+    msg: >-
+      Guest Infrastructure/cluster status.infrastructureName was not set after
+      waiting - skipping the permanent HostedCluster pause so
+      hosted-cluster-config-operator can keep reconciling it. CNO/ingress-operator
+      availability-prober pods would otherwise be stuck in Init forever since
+      there is no unpause step later in this role.
+  when: r_guest_infrastructure.resources | default([]) | length == 0 or
+        r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length == 0
+
 - name: Pause HostedCluster to prevent HyperShift from reconciling OLM catalog-operator
   kubernetes.core.k8s:
     state: patched
@@ -267,7 +321,15 @@
     definition:
       spec:
         pausedUntil: "true"
-  when: r_hcp_catalog_operator.resources | length > 0
+  when:
+    - r_hcp_catalog_operator.resources | length > 0
+    - r_guest_infrastructure.resources | default([]) | length > 0
+    - r_guest_infrastructure.resources[0].status.infrastructureName | default('') | length > 0
+
+- name: Remove guest kubeconfig written to disk for the Infrastructure check
+  file:
+    path: "/tmp/{{ ocp4_workload_create_hcp_cluster_name }}-guest-kubeconfig"
+    state: absent
 
 - name: Scale down HCP catalog-operator so it stops managing catalog Deployments
   kubernetes.core.k8s:
@@ -297,18 +359,6 @@
     - community-operators-catalog
     - redhat-marketplace-catalog
   ignore_errors: true
-
-- name: Get hosted cluster kubeconfig secret name
-  set_fact:
-    _hcp_kubeconfig_secret: "{{ ocp4_workload_create_hcp_cluster_name }}-admin-kubeconfig"
-
-- name: Retrieve hosted cluster kubeconfig
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Secret
-    name: "{{ _hcp_kubeconfig_secret }}"
-    namespace: "{{ ocp4_workload_create_hcp_cluster_namespace }}"
-  register: r_hcp_kubeconfig
 
 - name: Extract hosted cluster API URL from kubeconfig
   set_fact:
