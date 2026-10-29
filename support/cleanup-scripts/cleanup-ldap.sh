@@ -30,11 +30,20 @@ spec:
         name: htpasswd
 EOF
 
-# Remove LDAP secrets and config
-oc delete secret ldap-secret -n openshift-config --ignore-not-found
-oc delete configmap ca-config-map -n openshift-config --ignore-not-found
+echo "Waiting for OAuth operator to pick up the config change..."
+ELAPSED=0
+until [ "$(oc get deployment oauth-openshift -n openshift-authentication -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "$GEN")" != "$GEN" ]; do
+  sleep 2; ELAPSED=$((ELAPSED+2))
+  [ $ELAPSED -ge 60 ] && echo "Warning: OAuth operator slow to pick up config change - continuing to wait below" && break
+done
 
-# Remove LDAP users, identities, and groups
+# Remove LDAP users, identities, and groups now. The ldap-secret and
+# ca-config-map are left in place until the OAuth rollout has stabilized
+# below - deleting them here races with the authentication-operator's synced
+# copies in openshift-authentication, which the still-rolling-out old
+# LDAP-configured oauth-openshift pod needs to mount. Pulling them out from
+# under that pod gets it killed with a FailedMount error and causes a brief
+# login outage until the new pod is up.
 oc delete user normaluser1 fancyuser1 fancyuser2 teamuser1 teamuser2 --ignore-not-found
 # Only the LDAP-provider identities - not --all, which would also delete
 # htpasswd:admin along with them and break admin's OAuth login until the
@@ -96,7 +105,9 @@ while :; do
   fi
 done
 
-# Now safe to remove the LDAP server and test projects.
+# Now safe to remove the client secret/CA config, the LDAP server, and test projects.
+oc delete secret ldap-secret -n openshift-config --ignore-not-found
+oc delete configmap ca-config-map -n openshift-config --ignore-not-found
 echo "Deleting test projects and the glauth LDAP server - this can take a minute or two..."
 oc delete project app-dev app-test app-prod glauth --ignore-not-found --timeout=180s \
   || echo "WARNING: project deletion did not finish within 180s - it will keep terminating in the background, this is not a safety concern on its own"
