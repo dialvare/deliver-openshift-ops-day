@@ -112,15 +112,38 @@ if [ "${CURRENT_STATE}" == "Unmanaged" ]; then
     echo "  support/11-virtualization/fix-cnv-snapshots.sh for context."
   else
     echo "  CSISnapshotController is Unmanaged on ${CURRENT_VERSION}. Checking VolumeGroupSnapshot CRD storedVersions..."
-    SAFE=true
-    for crd in volumegroupsnapshotclasses volumegroupsnapshotcontents volumegroupsnapshots; do
-      CRD_FULL="${crd}.groupsnapshot.storage.k8s.io"
-      STORED=$(oc get crd "${CRD_FULL}" -o jsonpath='{.status.storedVersions}' 2>/dev/null)
-      if [ "${STORED}" != '["v1"]' ]; then
-        echo "  ${crd}: storedVersions=${STORED:-<not found>} (not v1-only) — NOT safe to revert"
-        SAFE=false
-      fi
+    # storedVersions converges to v1-only via the API server's async storage
+    # migration after fix-cnv-snapshots.sh changes the served version - this
+    # can take up to a few hours on a busy cluster. Since this script runs
+    # immediately after fix-cnv-snapshots.sh in the same provisioning job, a
+    # single check here routinely finds the migration still in flight and
+    # gives up permanently, leaving CSISnapshotController Unmanaged (and the
+    # cluster upgrade-blocked) for the rest of the cluster's life even though
+    # it becomes safe to revert a short time later. Poll instead of
+    # checking once.
+    CRD_WAIT_ELAPSED=0
+    CRD_WAIT_MAX_SECS=2700
+    SAFE=false
+    while [ "${CRD_WAIT_ELAPSED}" -lt "${CRD_WAIT_MAX_SECS}" ]; do
+      SAFE=true
+      for crd in volumegroupsnapshotclasses volumegroupsnapshotcontents volumegroupsnapshots; do
+        CRD_FULL="${crd}.groupsnapshot.storage.k8s.io"
+        STORED=$(oc get crd "${CRD_FULL}" -o jsonpath='{.status.storedVersions}' 2>/dev/null)
+        if [ "${STORED}" != '["v1"]' ]; then
+          SAFE=false
+        fi
+      done
+      [ "${SAFE}" == "true" ] && break
+      sleep 30; CRD_WAIT_ELAPSED=$((CRD_WAIT_ELAPSED+30))
     done
+
+    if [ "${SAFE}" != "true" ]; then
+      for crd in volumegroupsnapshotclasses volumegroupsnapshotcontents volumegroupsnapshots; do
+        CRD_FULL="${crd}.groupsnapshot.storage.k8s.io"
+        STORED=$(oc get crd "${CRD_FULL}" -o jsonpath='{.status.storedVersions}' 2>/dev/null)
+        [ "${STORED}" != '["v1"]' ] && echo "  ${crd}: storedVersions=${STORED:-<not found>} (not v1-only) — NOT safe to revert"
+      done
+    fi
 
     if [ "${SAFE}" == "true" ]; then
       echo "  All VolumeGroupSnapshot CRDs are v1-only. Reverting CSISnapshotController to Managed..."
