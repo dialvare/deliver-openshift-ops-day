@@ -136,6 +136,7 @@
     dest: /tmp/fix-upgrade-blockers.sh
     mode: '0755'
   when: ACTION == "provision"
+  ignore_errors: true
 
 - name: Run fix-upgrade-blockers.sh
   shell: /tmp/fix-upgrade-blockers.sh
