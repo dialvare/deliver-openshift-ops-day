@@ -501,11 +501,6 @@ You completed the core application lifecycle on OpenShift:
 
 **Key commands:**
 
-[WARNING]
-====
-*Before moving on:* Please run the cleanup commands in this module. This cluster has limited resources - leaving workloads running can cause resource pressure that may affect your experience in later modules.
-====
-
 [source,bash]
 ----
 oc new-app --name=myapp --image=myimage       # Deploy
@@ -518,6 +513,11 @@ oc get pdb -A                                  # Check disruption budgets
 ----
 
 === Cleanup
+
+[WARNING]
+====
+*Before moving on:* Please run the cleanup commands in this module. This cluster has limited resources - leaving workloads running can cause resource pressure that may affect your experience in later modules.
+====
 
 [source,bash,role="execute"]
 ----

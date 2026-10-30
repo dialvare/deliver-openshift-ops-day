@@ -137,7 +137,7 @@ In this case, OpenShift Lightspeed will likely provide a response explaining wha
 
 If you recall, when reviewing the OLSConfig, the `introspectionEnabled` stanza was set to `true`. This means OpenShift Lightspeed can read and write resources within the cluster via the MCP server.
 
-Now that we know what a Pod is, let's ask OpenShift Lightspeed to create one for us. Start by listing the pods running in the target namespace where we want to create ours. 
+Now that you know what a Pod is, let's ask OpenShift Lightspeed to create one for us. Start by listing the pods running in the target namespace where we want to create ours. 
 
 In the OpenShift Lightspeed interface, ask the following question:
 
@@ -157,7 +157,7 @@ Now, let's ask OpenShift Lightspeed to create the resource in that namespace. Yo
 Create a Pod in the lightspeed-demo namespace named "ols-workload" that deploys a sample nginx image
 ----
 
-In this case, before blindly executing your request in the cluster, OpenShift Lightspeed asks you to review and approve the action. To see the details of what information is sent to the MCP tool, click on *View action details*.
+In this case, before blindly executing your request in the cluster, OpenShift Lightspeed asks you to review and approve the action. To see the details of what information is sent to the MCP tool, click on **View action details**.
 
 image::ols-approve-tool.png[OpenShift Lightspeed Human-in-the-loop, link=self, window=blank]
 
@@ -197,7 +197,7 @@ Now ask OpenShift Lightspeed to investigate the root cause:
 Investigate the root cause of the firing PodDisruptionBudgetLimit alert
 ----
 
-During the investigation, OpenShift Lightspeed may ask you to approve certain tools. If prompted, click *Approve* to allow it to proceed.
+During the investigation, OpenShift Lightspeed may ask you to approve certain tools. If prompted, click **Approve** to allow it to proceed.
 
 With Troubleshooting mode active, OpenShift Lightspeed orchestrates multiple cluster interaction tools in sequence: it queries the alert details via Alertmanager, examines the state of the affected pods, retrieves their logs, and correlates the findings against Prometheus metrics. It then surfaces the root cause and suggests a concrete mitigation plan. 
 
@@ -211,14 +211,26 @@ image::ols-troubleshooting-tools.png[Tools used in Troubleshooting mode, link=se
 
 NOTE: Troubleshooting mode helps you analyze and diagnose complex scenarios, but we didn't ask to remediate them. Therefore, the _PodDisruptionBudgetLimit_ alert will still be firing after this exercise. You'll use it again in the Agentic OpenShift Lightspeed section coming up next.
 
-This was the last exercise using the OpenShift Lightspeed chatbot interface. You can now **minimize** the conversation.
+For now, **Clear** the conversation by clicking the **trash can icon** and **minimize** the OpenShift Lightspeed interface.
+
+=== AI-assisted cluster updates
+
+Cluster updates are one of the most critical — and nerve-wracking — tasks for an ops team. OpenShift Lightspeed can analyze your cluster's health and flag potential blockers before you trigger the update, making the process more predictable and secure.
+
+Navigate to **Administration** → **Cluster Settings**. In the Details page you should see an AI assessment section indicating that updates are available.
+
+image::ols-cluster-update.png[AI-assisted cluster updates, link=self, window=blank]
+
+Select **Precheck your cluster with AI**. The OpenShift Lightspeed interface will open automatically and start investigating your cluster's status, assessing whether it is ready for the upgrade.
+
+This was the last exercise using the OpenShift Lightspeed chatbot interface. You can now **minimize** the interface.
 
 === OpenShift Lightspeed Beyond Containers
 
 Throughout this module, we've seen how OpenShift Lightspeed can assist with container-based workloads such as Pods, Deployments, and Services. The same capabilities extend naturally to other areas of the platform:
 
 * **OpenShift Virtualization**: OpenShift Lightspeed can help you create VM definitions, troubleshoot startup failures, check resource allocation, or explain virtualization concepts — the same way it does for containers.
-* **Red Hat Advanced Cluster Management (ACM)**: You can ask it to list managed clusters, check their status, or generate policy definitions without having to remember the exact API structure.
+* **Red Hat Advanced Cluster Management (ACM)**: You can ask OpenShift Lightspeed to list managed clusters, check their status, or generate policy definitions without having to remember the exact API structure.
 
 The OpenShift Lightspeed operator stays active for the remainder of the workshop. Keep using it as you progress through upcoming modules — whether to clarify concepts, generate resource definitions, or assist with virtualization and multi-cluster tasks.
 
@@ -237,19 +249,21 @@ The core building block is the `AgenticRun` custom resource. Each run moves thro
 
 NOTE: Which phases require your sign-off is configurable. In your environment, only Analysis and Execution require a human decision. While this is expected for Execution steps, where humans need to approve them explicitly, Analysis could run automatically as it never writes to the cluster. However, in order to better control and understand each phase, we will trigger Analysis manually.
 
-In the OpenShift web console, navigate to **Agentic Runs** → **Agentic Runs** in the left navigation menu. The dashboard should be empty for now. No _Agentic Runs_ created.
+There are three ways to start an _AgenticRun_:
 
-There are two ways to start an _AgenticRun_. The first is to describe what you want in plain language and submit it directly as a manifest. The agent handles the rest: analysis, execution, and verification. This is useful for on-demand tasks like deploying a workload, checking a namespace, or scaling a resource.
+* The first is to describe what you want in plain language and submit it directly as a manifest. The agent handles the rest: analysis, execution, and verification. This is useful for on-demand tasks like deploying a workload, checking a namespace, or scaling a resource.
+* The second — and more powerful for ops workflows — is to let the Alerts Adapter do it for you. The adapter polls Alertmanager on a 30-second cadence and automatically creates _AgenticRun_ CRs whenever firing alerts match a configured severity.
+* And third, the Cluster Version Operator creates them automatically when an upgrade path is available in the cluster. This AI-powered analysis helps make cluster upgrades more secure and predictable.
 
-The second — and more powerful for ops workflows — is to let the Alerts Adapter do it for you. The adapter polls Alertmanager on a 30-second cadence and automatically creates _AgenticRun_ CRs whenever firing alerts match a configured severity.
+In the OpenShift web console, navigate to **Agentic Runs** → **Agentic Runs** in the left navigation menu. You should see two _Agentic Runs_ already created by the Cluster Version Operator in a _Pending_ state. Now, let's investigate and fix a firing alert.
 
 === Resolving the PodDisruptionBudgetLimit Alert
 
-The `PodDisruptionBudgetLimit` critical alert you investigated in the previous section is still firing. Let's let Agentic OpenShift Lightspeed resolve it automatically.
+The `PodDisruptionBudgetLimit` critical alert you investigated in a previous section is still firing. Let's let Agentic OpenShift Lightspeed resolve it automatically.
 
 The Alerts Adapter is already deployed in your cluster but its severity filter is currently disabled. Enable it by patching the `alerts-adapter-config` ConfigMap:
 
-[source,bash,role="copypaste"]
+[source,bash,role="execute"]
 ----
 oc patch configmap alerts-adapter-config -n openshift-lightspeed \
   --type merge -p '{"data":{"config.yaml":"filtering:\n  allowedReceivers:\n    - critical\n"}}'
@@ -264,49 +278,65 @@ oc rollout restart deployment/lightspeed-agentic-alerts-adapter -n openshift-lig
 
 NOTE: In a standard deployment the OpenShift Lightspeed operator detects ConfigMap changes and rolls out the updated configuration automatically. This demo environment requires a manual restart.
 
-Now, in your OpenShift web console, you should see new runs under **Agentic Runs** → **Agentic Runs**, created automatically by the adapter in response to the firing alerts. These resources are in a _Pending_ state, because we configured the Analysis phase as manual. 
+Now, in your OpenShift web console, you should see new runs under **Agentic Runs** → **Agentic Runs**, created automatically by the adapter in response to the firing alerts. These resources are in a _Pending_ state, because Analysis was configured as manual.
 
 Review the configuration by clicking the **engine icon** in the upper-right corner. The new page shows the actual approval configuration and allows you to change it:
 
 image::ols-approval-settings.png[Agentic Runs approval settings, link=self, window=blank]
 
-As mentioned before, _Analysis_ and _Execution_ are set to _Manual_, meaning the user needs to trigger the workflow manually and review the execution plan before accepting it. 
+As mentioned before, _Analysis_ and _Execution_ are set to _Manual_, meaning you need to trigger the workflow manually and review the execution plan before accepting it.
 
 Do not change this configuration. Navigate back to the **Agentic Runs** → **Agentic Runs** view. 
 
-Click on the Agentic Run related to our previous issue, named `poddisruptionbudgetlimit-critical` to open the detail view.
+Click on the Agentic Run related to the previous issue, named `poddisruptionbudgetlimit-critical`, to open the detail view.
 
 image::ols-agentic-run.png[PodDisruptionBudgetLimit Agentic Run details, link=self, window=blank]
 
 Work through each phase of the run:
 
 . Click **Approve Analysis** twice. A sandbox pod queries Alertmanager, inspects the affected resources, calls the LLM, and writes its findings. Track progress in **View Analysis logs**.
-. Once analysis completes, the status transitions to _Proposed_. Review the remediation plan in **View plan details**.
-. Click **Execute remediation** to approve it. The _Executing_ phase begins — a sandbox pod applies the fix to the cluster. Click **View Execution logs** to follow along.
+. Once analysis completes, review the proposed fix under the _Remediation plans_ section. If multiple execution plans appear, **Select** the one that recommends **Remove the init container**.
++
+image::ols-execute-remediation.png[Remediation plans created by Agentic OpenShift Lightspeed, link=self, window=blank]
+. Review the remediation plan in **View plan details**. Each plan provides a root cause analysis, the proposed commands, and the required permissions.
+. Click **Execute remediation** twice. A sandbox pod applies the fix to the cluster. Click **View Execution logs** to follow along.
++
+image::ols-execution-logs.png[Execution logs in Agentic OpenShift Lightspeed, link=self, window=blank]
 . Once execution completes, _Verification_ starts automatically. A new sandbox pod confirms the alert condition is resolved and the run reaches _Completed_.
 +
 NOTE: If verification fails, the run transitions to _Escalating_ instead, creating a record of what the agent could not complete for human review.
-. Navigate to **Observe** → **Alerting** and switch to **All projects**. The `PodDisruptionBudgetLimit` critical alert should no longer appear in the firing list.
+
+Now, navigate to **Observe** → **Alerting** and switch to **All projects**. The `PodDisruptionBudgetLimit` critical alert should no longer appear in the firing list.
 
 == Summary & Cleanup
 
-OpenShift Lightspeed provides AI-assisted operations directly in the console. By enabling natural language interactions, it helps administrators and developers quickly reduce the initial learning curve in OpenShift and be more productive by reducing time-to-resolution for common issues.
+OpenShift Lightspeed brings AI assistance directly into the OpenShift console. It helps platform engineers diagnose issues faster, manage workloads through natural language, and let autonomous agents handle alert remediation — reducing time-to-resolution without requiring step-by-step CLI work.
 
 In this module, you:
 
 * Verified the OpenShift Lightspeed installation and reviewed its configuration
 * Used the Lightspeed chat interface to explore concepts, generate and manage resources, and troubleshoot an issue using cluster introspection
+* Used the AI-assisted cluster update precheck to assess cluster health before upgrading
 * Explored the Agentic OpenShift Lightspeed configuration and enabled automated AgenticRun creation from critical alerts
-* Followed the autonomous workflow from analysis → execution → verification, with human-in-the-loop
+* Followed the agentic workflow from analysis → execution → verification, with human-in-the-loop approval at each phase
 
 We've covered the core workflow, but there are additional capabilities worth exploring — such as bringing your own knowledge base, connecting Lightspeed to custom MCPs, and generating Perses dashboards. To learn more, check the https://www.redhat.com/en/products/interactive-walkthrough/red-hat-openshift-lightspeed[OpenShift Lightspeed product page, window=blank].
 
 === Cleanup
 
-Delete the demo namespaces:
+[WARNING]
+====
+*Before moving on:* Please run the cleanup commands in this module. This cluster has limited resources - leaving workloads running can cause resource pressure that may affect your experience in later modules.
+====
+
+Disable the Alerts Adapter filter, remove all AgenticRuns, and delete the demo namespaces:
 
 [source,bash,role="execute"]
 ----
+oc patch configmap alerts-adapter-config -n openshift-lightspeed \
+  --type merge -p '{"data":{"config.yaml":"filtering:\n  allowedReceivers: []\n"}}'
+oc rollout restart deployment/lightspeed-agentic-alerts-adapter -n openshift-lightspeed
+oc delete agenticruns --all -n openshift-lightspeed --ignore-not-found --wait=false
 oc delete namespace lightspeed-demo critical --ignore-not-found --wait=false
 echo "Cleanup complete - you can continue to the next module"
 ----
