@@ -114,8 +114,8 @@ You can define your own alerts for application namespaces. Here's an example tha
 [source,bash,role="execute"]
 ----
 cat <<EOF | oc apply -f -
-apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
+apiVersion: monitoring.openshift.io/v1
+kind: AlertingRule
 metadata:
   name: ops-track-alerts
   namespace: openshift-monitoring
@@ -134,11 +134,13 @@ spec:
 EOF
 ----
 
+`AlertingRule` is the supported way to add custom alerting rules to the platform Prometheus instance in `openshift-monitoring` - OpenShift reconciles it into a managed `PrometheusRule` behind the scenes, rather than you creating one directly.
+
 Verify the rule was created:
 
 [source,bash,role="execute"]
 ----
-oc get prometheusrule ops-track-alerts -n openshift-monitoring
+oc get alertingrule.monitoring.openshift.io ops-track-alerts -n openshift-monitoring
 ----
 
 The rule exists but nothing is triggering it. Let's fix that - deploy a pod that crash-loops so you can see the alert go from inactive to pending to firing:
@@ -753,7 +755,7 @@ fi
 **What you learned:**
 
 * OpenShift's built-in Prometheus stack provides metrics and dashboards with no setup
-* How to create custom alerting rules with PrometheusRule and configure email notifications
+* How to create custom alerting rules with AlertingRule and configure email notifications
 * How to install and configure the full logging stack (Loki + Vector)
 * How to view and filter logs in the OpenShift console
 * How to deploy the OpenTelemetry tracing pipeline (Tempo + OTel Collector)
