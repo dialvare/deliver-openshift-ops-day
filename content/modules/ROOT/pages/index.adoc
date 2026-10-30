@@ -402,7 +402,7 @@ Output:
 
 ----
 NAME      VERSION   AVAILABLE   PROGRESSING   SINCE   STATUS
-version   4.x       True        False         32m     Cluster version is 4.x
+version   5.x       True        False         32m     Cluster version is 5.x
 ----
 
 **View Available Upgrades (Console)**

@@ -31,21 +31,21 @@ You'll see ~34 operators. Example output:
 
 ----
 NAME                         VERSION   AVAILABLE   PROGRESSING   DEGRADED   SINCE
-authentication               4.x.x    True        False         False      3h
-cloud-credential             4.x.x    True        False         False      4h
-console                      4.x.x    True        False         False      3h
-dns                          4.x.x    True        False         False      4h
-etcd                         4.x.x    True        False         False      4h
-ingress                      4.x.x    True        False         False      3h
-kube-apiserver               4.x.x    True        False         False      4h
-kube-controller-manager      4.x.x    True        False         False      4h
-kube-scheduler               4.x.x    True        False         False      4h
-machine-api                  4.x.x    True        False         False      4h
-machine-config               4.x.x    True        False         False      4h
-monitoring                   4.x.x    True        False         False      3h
-network                      4.x.x    True        False         False      4h
-openshift-apiserver          4.x.x    True        False         False      3h
-storage                      4.x.x    True        False         False      4h
+authentication               5.x.x    True        False         False      3h
+cloud-credential             5.x.x    True        False         False      4h
+console                      5.x.x    True        False         False      3h
+dns                          5.x.x    True        False         False      4h
+etcd                         5.x.x    True        False         False      4h
+ingress                      5.x.x    True        False         False      3h
+kube-apiserver               5.x.x    True        False         False      4h
+kube-controller-manager      5.x.x    True        False         False      4h
+kube-scheduler               5.x.x    True        False         False      4h
+machine-api                  5.x.x    True        False         False      4h
+machine-config               5.x.x    True        False         False      4h
+monitoring                   5.x.x    True        False         False      3h
+network                      5.x.x    True        False         False      4h
+openshift-apiserver          5.x.x    True        False         False      3h
+storage                      5.x.x    True        False         False      4h
 ----
 
 **What to check:**
@@ -88,7 +88,7 @@ oc get clusterversion
 Your output will look similar to:
 ----
 NAME      VERSION   AVAILABLE   PROGRESSING   SINCE   STATUS
-version   4.x.x    True        False         3h      Cluster version is 4.x.x
+version   5.x.x    True        False         3h      Cluster version is 5.x.x
 ----
 
 Check which update channel you're subscribed to:
@@ -100,10 +100,10 @@ oc get clusterversion version -o jsonpath='{.spec.channel}' && echo
 
 Common channels:
 
-* **stable-4.x** - Production-ready releases (recommended)
-* **fast-4.x** - Early access to stable releases
-* **eus-4.x** - Extended Update Support (14-month lifecycle)
-* **candidate-4.x** - Pre-release testing
+* **stable-5.x** - Production-ready releases (recommended)
+* **fast-5.x** - Early access to stable releases
+* **eus-5.x** - Extended Update Support (14-month lifecycle)
+* **candidate-5.x** - Pre-release testing
 
 View available updates:
 
@@ -322,7 +322,7 @@ oc get clusteroperator monitoring
 
 ----
 NAME         VERSION   AVAILABLE   PROGRESSING   DEGRADED   SINCE   MESSAGE
-monitoring   4.x.x    True        False         False      3h
+monitoring   5.x.x    True        False         False      3h
 ----
 
 == Summary
