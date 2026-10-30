@@ -372,7 +372,7 @@ EOF
 
 This allows only traffic to `www.redhat.com` and `quay.io`, blocking everything else.
 
-NOTE: Wildcard DNS names (e.g., `*.redhat.com`) are a Technology Preview feature in OpenShift 4.22 and may not be enabled on all clusters. Use specific hostnames for production configurations.
+NOTE: Wildcard DNS names (e.g., `*.redhat.com`) are not supported as an `EgressFirewall` rule destination - OVN rejects the rule outright (`wildcard dns name is not supported as rule destination`). Always use specific hostnames.
 
 **EgressFirewall Use Cases**
 
