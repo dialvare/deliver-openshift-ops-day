@@ -87,7 +87,7 @@
 
 - name: "M1 | query prometheus"
   vars:
-    promql_query: "sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)"
+    promql_query: "sum(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])) by (namespace)"
   ansible.builtin.uri:
     url: https://{{ thanos_host }}/api/v1/query?query={{ promql_query | urlencode }}
     method: GET
