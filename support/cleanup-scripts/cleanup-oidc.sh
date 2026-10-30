@@ -1,7 +1,10 @@
 #!/bin/bash
 set -uo pipefail
 # Cleanup script for Module 08 - OIDC Authentication
-# Restores OAuth to htpasswd only, removes Keycloak and OIDC resources
+# Restores OAuth to htpasswd only and removes the OIDC users/groups/RBAC.
+# Deliberately leaves the rhbk namespace (Keycloak) running rather than
+# tearing it down - see the note above the namespace-deletion lines this
+# used to have, below.
 
 echo "Cleaning up OIDC resources..."
 
@@ -51,14 +54,14 @@ oc adm policy remove-cluster-role-from-user lightspeed-operator-query-access dev
 
 # The authentication operator applies the OAuth change above in several
 # stages (trust bundle sync, cert rotation, etc.), and oauth-openshift can
-# roll out more than once in a row as a result. We wait for full, sustained
-# stability *before* tearing down the rhbk namespace below - not just so the
-# attendee's Console tab is safe to touch (see configure-oauth-oidc.sh), but
-# because the old rhbk-configured oauth-openshift pods can still be running
-# and trying to reach Keycloak while the rollout is in progress. Deleting
-# rhbk first (the previous order) left a window where those still-running
-# old pods got connection failures against an already-deleted OIDC backend.
-echo "Waiting for OAuth to fully stabilize before tearing down rhbk - do NOT reload or log out of the OCP Console tab until this finishes."
+# roll out more than once in a row as a result. Declaring success after the
+# first rollout finishes is not safe: logging out / reloading the Console
+# while a later restart is still in flight causes repeated auth failures
+# against the Console's open API watches, which can freeze the Console
+# tab's browser tab. Instead, wait until the cluster has been fully quiet
+# for a sustained period, resetting the quiet timer every time
+# oauth-openshift restarts again.
+echo "Waiting for OAuth to fully stabilize - do NOT reload or log in to the OCP Console tab until this finishes."
 REQUIRED_STABLE_SECS=30
 MAX_WAIT_SECS=600
 STABLE_FOR=0
@@ -97,12 +100,30 @@ while :; do
   fi
 done
 
-# Now safe to remove the client secret, the Keycloak/rhbk backend, and test projects.
-oc delete secret rhbk-client-secret -n openshift-config --ignore-not-found
-echo "Deleting rhbk namespace and projects - this can take a minute or two..."
-oc delete namespace rhbk --ignore-not-found --timeout=180s \
-  || echo "WARNING: rhbk namespace did not finish terminating within 180s - it will keep terminating in the background, this is not a safety concern on its own"
-oc delete project app-development app-production --ignore-not-found --timeout=180s \
-  || echo "WARNING: project deletion did not finish within 180s - it will keep terminating in the background, this is not a safety concern on its own"
+# Deliberately NOT deleting the rhbk-client-secret, the rhbk namespace
+# (Keycloak), or the app-development/app-production projects here. On a
+# dedicated, single-attendee RHDP cluster, idle Keycloak's footprint
+# (~22m CPU / ~894Mi memory, well within node capacity) is not meaningful
+# resource pressure, and the multi-minute namespace/project teardown this
+# used to do added real risk for no benefit: it raced the still-rolling-out
+# old oauth-openshift pods against an already-deleted OIDC backend, and
+# left the Console tab untouchable for the whole wait. Reverting the OAuth
+# CR above is enough to fully hide OIDC from the login page; Keycloak is
+# just left running unused.
+
+# If the ACM/MCE "Fleet management" perspective was ever selected (e.g.
+# while exploring the cluster earlier in the workshop), the Console
+# persists that choice per-user in a ConfigMap and restores it on next
+# login. Fleet management runs a 5s ACM operator-health poll plus an
+# all-namespaces Events walk that has been observed to pin the embedded
+# Console tab's renderer in a GC-thrashing freeze it never recovers from.
+# Reset the perspective to Administrator so the next login (module 9)
+# always lands on the lightweight single-cluster view instead.
+echo "Resetting Console perspective to Administrator to avoid the Fleet-management freeze..."
+if oc get namespace openshift-console-user-settings >/dev/null 2>&1; then
+  for cm in $(oc get configmap -n openshift-console-user-settings -o name 2>/dev/null | grep '^configmap/user-settings-'); do
+    oc patch -n openshift-console-user-settings "$cm" --type=merge -p '{"data":{"console.lastPerspective":"admin"}}' >/dev/null 2>&1 || true
+  done
+fi
 
 echo "Cleanup complete - it is now safe to continue to the next module"
