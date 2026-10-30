@@ -323,7 +323,14 @@ Click the **Snapshots** tab. The snapshot shows **Succeeded** status once comple
 image::virt-snapshot-ready.png[Snapshots tab showing rhel9-vm-snapshot with Ready status, link=self, window=blank]
 **Step 3: Break Something**
 
-The snapshot is your safety net - let's prove it works by breaking the VM. First, get the VM login credentials:
+The snapshot is your safety net - let's prove it works by breaking the VM. If the VM is stopped, start it back up first:
+
+[source,bash,role="execute"]
+----
+virtctl start rhel9-vm -n vm-demo
+----
+
+Now get the VM login credentials:
 
 [source,bash,role="execute"]
 ----
